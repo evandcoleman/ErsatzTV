@@ -47,7 +47,7 @@ jobs:
   #     ac_password: ${{ secrets.AC_PASSWORD }}
   #     gh_token: ${{ secrets.GITHUB_TOKEN }}
   build_and_push:
-    uses: ersatztv/ersatztv/.github/workflows/docker.yml@main
+    uses: evandcoleman/ersatztv/.github/workflows/docker.yml@main
     needs: calculate_version
     with:
       base_version: develop
