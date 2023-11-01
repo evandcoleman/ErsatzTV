@@ -76,7 +76,7 @@ public class ColorspaceFilter : BaseFilter
 
                 if (cp.ColorTransfer == "smpte2084") // HDR content
                 {
-                    transfer = "reinhard"; // Use Reinhard tonemapping for HDR to SDR conversion
+                    inputOverrides += ",tonemap=reinhard"; 
                 }
 
                 string primaries = string.IsNullOrWhiteSpace(cp.ColorPrimaries) || string.Equals(
