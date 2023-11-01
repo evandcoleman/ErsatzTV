@@ -81,32 +81,32 @@ jobs:
             evandcoleman/ersatztv:${{ inputs.tag_version }}${{ matrix.suffix }}
         if: ${{ matrix.name != 'arm64' && matrix.name != 'arm32v7' }}
 
-      - name: Build and push
-        uses: docker/build-push-action@v3
-        with:
-          builder: ${{ steps.docker-buildx.outputs.name }}
-          context: .
-          file: ./docker/${{ matrix.path }}Dockerfile
-          push: true
-          platforms: 'linux/arm64'
-          build-args: |
-            INFO_VERSION=${{ inputs.info_version }}-docker${{ matrix.suffix }}
-          tags: |
-            evandcoleman/ersatztv:${{ inputs.base_version }}${{ matrix.suffix }}
-            evandcoleman/ersatztv:${{ inputs.tag_version }}${{ matrix.suffix }}
-        if: ${{ matrix.name == 'arm64' }}
+      # - name: Build and push
+      #   uses: docker/build-push-action@v3
+      #   with:
+      #     builder: ${{ steps.docker-buildx.outputs.name }}
+      #     context: .
+      #     file: ./docker/${{ matrix.path }}Dockerfile
+      #     push: true
+      #     platforms: 'linux/arm64'
+      #     build-args: |
+      #       INFO_VERSION=${{ inputs.info_version }}-docker${{ matrix.suffix }}
+      #     tags: |
+      #       evandcoleman/ersatztv:${{ inputs.base_version }}${{ matrix.suffix }}
+      #       evandcoleman/ersatztv:${{ inputs.tag_version }}${{ matrix.suffix }}
+      #   if: ${{ matrix.name == 'arm64' }}
 
-      - name: Build and push
-        uses: docker/build-push-action@v3
-        with:
-          builder: ${{ steps.docker-buildx.outputs.name }}
-          context: .
-          file: ./docker/${{ matrix.path }}Dockerfile
-          push: true
-          platforms: 'linux/arm/v7'
-          build-args: |
-            INFO_VERSION=${{ inputs.info_version }}-docker${{ matrix.suffix }}
-          tags: |
-            evandcoleman/ersatztv:${{ inputs.base_version }}${{ matrix.suffix }}
-            evandcoleman/ersatztv:${{ inputs.tag_version }}${{ matrix.suffix }}
-        if: ${{ matrix.name == 'arm32v7' }}
+      # - name: Build and push
+      #   uses: docker/build-push-action@v3
+      #   with:
+      #     builder: ${{ steps.docker-buildx.outputs.name }}
+      #     context: .
+      #     file: ./docker/${{ matrix.path }}Dockerfile
+      #     push: true
+      #     platforms: 'linux/arm/v7'
+      #     build-args: |
+      #       INFO_VERSION=${{ inputs.info_version }}-docker${{ matrix.suffix }}
+      #     tags: |
+      #       evandcoleman/ersatztv:${{ inputs.base_version }}${{ matrix.suffix }}
+      #       evandcoleman/ersatztv:${{ inputs.tag_version }}${{ matrix.suffix }}
+      #   if: ${{ matrix.name == 'arm32v7' }}
