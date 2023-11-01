@@ -31,25 +31,25 @@ jobs:
             path: ''
             suffix: ''
             qemu: false
-          - name: nvidia
-            path: 'nvidia/'
-            suffix: '-nvidia'
-            qemu: false
+          # - name: nvidia
+          #   path: 'nvidia/'
+          #   suffix: '-nvidia'
+          #   qemu: false
           - name: vaapi
             path: 'vaapi/'
             suffix: '-vaapi'
             qemu: false
-          - name: arm32v7
-            path: 'arm32v7/'
-            suffix: '-arm'
-            qemu: true
-          - name: arm64
-            path: 'arm64/'
-            suffix: '-arm64'
-            qemu: true
+          # - name: arm32v7
+          #   path: 'arm32v7/'
+          #   suffix: '-arm'
+          #   qemu: true
+          # - name: arm64
+          #   path: 'arm64/'
+          #   suffix: '-arm64'
+          #   qemu: true
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@main
         with:
           fetch-depth: 0
 
@@ -77,8 +77,8 @@ jobs:
           build-args: |
             INFO_VERSION=${{ inputs.info_version }}-docker${{ matrix.suffix }}
           tags: |
-            jasongdove/ersatztv:${{ inputs.base_version }}${{ matrix.suffix }}
-            jasongdove/ersatztv:${{ inputs.tag_version }}${{ matrix.suffix }}
+            evandcoleman/ersatztv:${{ inputs.base_version }}${{ matrix.suffix }}
+            evandcoleman/ersatztv:${{ inputs.tag_version }}${{ matrix.suffix }}
         if: ${{ matrix.name != 'arm64' && matrix.name != 'arm32v7' }}
 
       - name: Build and push
@@ -92,8 +92,8 @@ jobs:
           build-args: |
             INFO_VERSION=${{ inputs.info_version }}-docker${{ matrix.suffix }}
           tags: |
-            jasongdove/ersatztv:${{ inputs.base_version }}${{ matrix.suffix }}
-            jasongdove/ersatztv:${{ inputs.tag_version }}${{ matrix.suffix }}
+            evandcoleman/ersatztv:${{ inputs.base_version }}${{ matrix.suffix }}
+            evandcoleman/ersatztv:${{ inputs.tag_version }}${{ matrix.suffix }}
         if: ${{ matrix.name == 'arm64' }}
 
       - name: Build and push
@@ -107,6 +107,6 @@ jobs:
           build-args: |
             INFO_VERSION=${{ inputs.info_version }}-docker${{ matrix.suffix }}
           tags: |
-            jasongdove/ersatztv:${{ inputs.base_version }}${{ matrix.suffix }}
-            jasongdove/ersatztv:${{ inputs.tag_version }}${{ matrix.suffix }}
+            evandcoleman/ersatztv:${{ inputs.base_version }}${{ matrix.suffix }}
+            evandcoleman/ersatztv:${{ inputs.tag_version }}${{ matrix.suffix }}
         if: ${{ matrix.name == 'arm32v7' }}
