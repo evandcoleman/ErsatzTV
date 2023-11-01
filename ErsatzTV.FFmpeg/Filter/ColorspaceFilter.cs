@@ -76,9 +76,9 @@ public class ColorspaceFilter : BaseFilter
 
                 if (cp.ColorTransfer == "smpte2084") // HDR content
                 {
-                    // Use bt709 for SDR conversion and add tonemap filter
+                    // Use bt709 for SDR conversion and add tonemap filter with adjusted parameters
                     transfer = "bt709";
-                    inputOverrides += ",tonemap=reinhard"; 
+                    inputOverrides += ",tonemap=hable:param=0.5"; // Adjust the param value as needed
                 }
 
                 string primaries = string.IsNullOrWhiteSpace(cp.ColorPrimaries) || string.Equals(
