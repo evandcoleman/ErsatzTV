@@ -76,6 +76,8 @@ public class ColorspaceFilter : BaseFilter
 
                 if (cp.ColorTransfer == "smpte2084") // HDR content
                 {
+                    // Use bt709 for SDR conversion and add tonemap filter
+                    transfer = "bt709";
                     inputOverrides += ",tonemap=reinhard"; 
                 }
 
