@@ -78,7 +78,7 @@ public class ColorspaceFilter : BaseFilter
                 {
                     // Use bt709 for SDR conversion and add tonemap filter with adjusted parameters
                     transfer = "bt709";
-                    inputOverrides += ",tonemap=hable:param=0.7"; // Adjust the param value as needed
+                    inputOverrides += ",tonemap=hable:param=0.5"; // Adjust the param value as needed
                 }
 
                 string primaries = string.IsNullOrWhiteSpace(cp.ColorPrimaries) || string.Equals(
