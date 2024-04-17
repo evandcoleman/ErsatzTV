@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using ErsatzTV.FFmpeg.Capabilities;
 using ErsatzTV.FFmpeg.Decoder;
 using ErsatzTV.FFmpeg.Decoder.Cuvid;
@@ -9,8 +8,8 @@ using ErsatzTV.FFmpeg.Filter.Cuda;
 using ErsatzTV.FFmpeg.Format;
 using ErsatzTV.FFmpeg.GlobalOption.HardwareAcceleration;
 using ErsatzTV.FFmpeg.InputOption;
+using ErsatzTV.FFmpeg.OutputFormat;
 using ErsatzTV.FFmpeg.OutputOption;
-using ErsatzTV.FFmpeg.Runtime;
 using ErsatzTV.FFmpeg.State;
 using Microsoft.Extensions.Logging;
 
@@ -18,13 +17,11 @@ namespace ErsatzTV.FFmpeg.Pipeline;
 
 public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
 {
-    private readonly IRuntimeInfo _runtimeInfo;
     private readonly IFFmpegCapabilities _ffmpegCapabilities;
     private readonly IHardwareCapabilities _hardwareCapabilities;
     private readonly ILogger _logger;
 
     public NvidiaPipelineBuilder(
-        IRuntimeInfo runtimeInfo,
         IFFmpegCapabilities ffmpegCapabilities,
         IHardwareCapabilities hardwareCapabilities,
         HardwareAccelerationMode hardwareAccelerationMode,
@@ -32,6 +29,7 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
         Option<AudioInputFile> audioInputFile,
         Option<WatermarkInputFile> watermarkInputFile,
         Option<SubtitleInputFile> subtitleInputFile,
+        Option<ConcatInputFile> concatInputFile,
         string reportsFolder,
         string fontsFolder,
         ILogger logger) : base(
@@ -41,11 +39,11 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
         audioInputFile,
         watermarkInputFile,
         subtitleInputFile,
+        concatInputFile,
         reportsFolder,
         fontsFolder,
         logger)
     {
-        _runtimeInfo = runtimeInfo;
         _ffmpegCapabilities = ffmpegCapabilities;
         _hardwareCapabilities = hardwareCapabilities;
         _logger = logger;
@@ -66,6 +64,12 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
             desiredState.VideoFormat,
             desiredState.VideoProfile,
             desiredState.PixelFormat);
+
+        // use software encoding (rawvideo) when piping to parent hls segmenter
+        if (ffmpegState.OutputFormat is OutputFormatKind.Nut)
+        {
+            encodeCapability = FFmpegCapability.Software;
+        }
 
         // mpeg2_cuvid seems to have issues when yadif_cuda is used, so just use software decoding
         if (context.ShouldDeinterlace && videoStream.Codec == VideoFormat.Mpeg2Video)
@@ -96,13 +100,6 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
         FFmpegState ffmpegState,
         PipelineContext context)
     {
-        if (NeedsCudaWorkaround(ffmpegState, videoStream.Codec))
-        {
-            var cuda = new DecoderImplicitCuda();
-            videoInputFile.AddOption(cuda);
-            return cuda;
-        }
-
         Option<IDecoder> maybeDecoder = (ffmpegState.DecoderHardwareAccelerationMode, videoStream.Codec) switch
         {
             (HardwareAccelerationMode.Nvenc, VideoFormat.Hevc) => new DecoderHevcCuvid(HardwareAccelerationMode.Nvenc),
@@ -172,6 +169,8 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
         currentState = SetDeinterlace(videoInputFile, context, currentState);
         currentState = SetScale(videoInputFile, videoStream, context, ffmpegState, desiredState, currentState);
         currentState = SetPad(videoInputFile, videoStream, desiredState, currentState);
+        currentState = SetCrop(videoInputFile, desiredState, currentState);
+        SetStillImageLoop(videoInputFile, videoStream, desiredState, pipelineSteps);
 
         if (currentState.BitDepth == 8 && context.HasSubtitleOverlay || context.HasWatermark)
         {
@@ -225,6 +224,16 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
             fontsFolder,
             subtitleOverlayFilterSteps);
 
+        // need to use software overlay for watermark with fade points
+        // because `-loop 1` seems to cause a green line at the bottom of the resulting video with overlay_cuda
+        if (context.HasWatermark && watermarkInputFile
+                .Map(wm => wm.DesiredState.MaybeFadePoints.Map(fp => fp.Count > 0).IfNone(false)).IfNone(false))
+        {
+            var hardwareDownload = new CudaHardwareDownloadFilter(currentState.PixelFormat, None);
+            currentState = hardwareDownload.NextState(currentState);
+            videoInputFile.FilterSteps.Add(hardwareDownload);
+        }
+
         currentState = SetWatermark(
             videoStream,
             watermarkInputFile,
@@ -243,7 +252,7 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
                     (HardwareAccelerationMode.Nvenc, VideoFormat.Hevc) => new EncoderHevcNvenc(_hardwareCapabilities),
                     (HardwareAccelerationMode.Nvenc, VideoFormat.H264) => new EncoderH264Nvenc(),
 
-                    (_, _) => GetSoftwareEncoder(currentState, desiredState)
+                    (_, _) => GetSoftwareEncoder(ffmpegState, currentState, desiredState)
                 };
 
             foreach (IEncoder encoder in maybeEncoder)
@@ -324,9 +333,27 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
                 }
             }
 
+            // _logger.LogDebug(
+            //     "{CurrentPixelFormat} => {DesiredPixelFormat}",
+            //     currentState
+            //         .PixelFormat,
+            //     desiredPixelFormat);
+
             if (currentState.FrameDataLocation == FrameDataLocation.Hardware &&
                 ffmpegState.EncoderHardwareAccelerationMode == HardwareAccelerationMode.None)
             {
+                if (currentState.PixelFormat.Map(f => f.FFmpegName) != format.FFmpegName)
+                {
+                    _logger.LogDebug(
+                        "Format {A} doesn't equal {B}",
+                        currentState.PixelFormat.Map(f => f.FFmpegName),
+                        format.FFmpegName);
+
+                    var formatFilter = new CudaFormatFilter(format);
+                    currentState = formatFilter.NextState(currentState);
+                    result.Add(formatFilter);
+                }
+
                 var hardwareDownload = new CudaHardwareDownloadFilter(currentState.PixelFormat, Some(format));
                 currentState = hardwareDownload.NextState(currentState);
                 result.Add(hardwareDownload);
@@ -365,6 +392,11 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
                 {
                     pipelineSteps.Add(new PixelFormatOutputOption(format));
                 }
+            }
+
+            if (ffmpegState.OutputFormat is OutputFormatKind.Nut && format.BitDepth == 10)
+            {
+                pipelineSteps.Add(new PixelFormatOutputOption(format));
             }
         }
 
@@ -415,17 +447,44 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
                 watermark.FilterSteps.AddRange(fadePoints.Map(fp => new WatermarkFadeFilter(fp)));
             }
 
-            watermark.FilterSteps.Add(
-                new HardwareUploadCudaFilter(currentState with { FrameDataLocation = FrameDataLocation.Software }));
+            // if we're in software, it's because we need to overlay in software (watermark with fade points - loop)
+            if (currentState.FrameDataLocation is FrameDataLocation.Software)
+            {
+                foreach (IPixelFormat desiredPixelFormat in desiredState.PixelFormat)
+                {
+                    IPixelFormat pf = desiredPixelFormat;
+                    if (desiredPixelFormat is PixelFormatNv12 nv12)
+                    {
+                        foreach (IPixelFormat availablePixelFormat in AvailablePixelFormats.ForPixelFormat(
+                                     nv12.Name,
+                                     null))
+                        {
+                            pf = availablePixelFormat;
+                        }
+                    }
 
-            var watermarkFilter = new OverlayWatermarkCudaFilter(
-                watermark.DesiredState,
-                desiredState.PaddedSize,
-                videoStream.SquarePixelFrameSize(currentState.PaddedSize),
-                _logger);
-            watermarkOverlayFilterSteps.Add(watermarkFilter);
+                    var watermarkFilter = new OverlayWatermarkFilter(
+                        watermark.DesiredState,
+                        desiredState.PaddedSize,
+                        videoStream.SquarePixelFrameSize(currentState.PaddedSize),
+                        pf,
+                        _logger);
+                    watermarkOverlayFilterSteps.Add(watermarkFilter);
+                }
+            }
+            else
+            {
+                watermark.FilterSteps.Add(
+                    new HardwareUploadCudaFilter(currentState with { FrameDataLocation = FrameDataLocation.Software }));
 
-            currentState = watermarkFilter.NextState(currentState);
+                var watermarkFilter = new OverlayWatermarkCudaFilter(
+                    watermark.DesiredState,
+                    desiredState.PaddedSize,
+                    videoStream.SquarePixelFrameSize(currentState.PaddedSize),
+                    _logger);
+                watermarkOverlayFilterSteps.Add(watermarkFilter);
+                currentState = watermarkFilter.NextState(currentState);
+            }
         }
 
         return currentState;
@@ -439,7 +498,7 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
         FrameState currentState,
         FrameState desiredState,
         string fontsFolder,
-        ICollection<IPipelineFilterStep> subtitleOverlayFilterSteps)
+        List<IPipelineFilterStep> subtitleOverlayFilterSteps)
     {
         foreach (SubtitleInputFile subtitle in subtitleInputFile)
         {
@@ -487,7 +546,8 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
                         subtitle.FilterSteps.Add(subtitleHardwareUpload);
 
                         // only scale if scaling or padding was used for main video stream
-                        if (videoInputFile.FilterSteps.Any(s => s is ScaleFilter or ScaleCudaFilter { IsFormatOnly: false } or PadFilter))
+                        if (videoInputFile.FilterSteps.Any(
+                                s => s is ScaleFilter or ScaleCudaFilter { IsFormatOnly: false } or PadFilter))
                         {
                             var scaleFilter = new SubtitleScaleNppFilter(desiredState.PaddedSize);
                             subtitle.FilterSteps.Add(scaleFilter);
@@ -496,17 +556,18 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
                     else
                     {
                         // only scale if scaling or padding was used for main video stream
-                        if (videoInputFile.FilterSteps.Any(s => s is ScaleFilter or ScaleCudaFilter { IsFormatOnly: false } or PadFilter))
+                        if (videoInputFile.FilterSteps.Any(
+                                s => s is ScaleFilter or ScaleCudaFilter { IsFormatOnly: false } or PadFilter))
                         {
                             var scaleFilter = new ScaleImageFilter(desiredState.PaddedSize);
                             subtitle.FilterSteps.Add(scaleFilter);
                         }
-                        
+
                         var subtitleHardwareUpload = new HardwareUploadCudaFilter(
                             currentState with { FrameDataLocation = FrameDataLocation.Software });
                         subtitle.FilterSteps.Add(subtitleHardwareUpload);
                     }
-                    
+
                     var subtitlesFilter = new OverlaySubtitleCudaFilter();
                     subtitleOverlayFilterSteps.Add(subtitlesFilter);
                 }
@@ -550,7 +611,7 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
     {
         if (desiredState.CroppedSize.IsNone && currentState.PaddedSize != desiredState.PaddedSize)
         {
-            IPipelineFilterStep padStep = new PadFilter(currentState, desiredState.PaddedSize);
+            var padStep = new PadFilter(currentState, desiredState.PaddedSize);
             currentState = padStep.NextState(currentState);
             videoInputFile.FilterSteps.Add(padStep);
         }
@@ -647,15 +708,4 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
 
         return currentState;
     }
-    
-    // the combination of:
-    // - windows
-    // - ffmpeg 6.1 snapshot (where readrate_initial_burst option is present)
-    // - h264_cuvid
-    // appears to cause jitter, so use implicit cuda decoder in that specific case
-    private bool NeedsCudaWorkaround(FFmpegState ffmpegState, string videoFormat) =>
-        _runtimeInfo.IsOSPlatform(OSPlatform.Windows)
-        && _ffmpegCapabilities.HasOption(FFmpegKnownOption.ReadrateInitialBurst)
-        && ffmpegState.DecoderHardwareAccelerationMode is HardwareAccelerationMode.Nvenc
-        && videoFormat == VideoFormat.H264;
 }

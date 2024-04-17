@@ -1,6 +1,7 @@
 ﻿using System.Data;
 using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Domain.Filler;
+using ErsatzTV.Core.Domain.Scheduling;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -52,6 +53,9 @@ public class TvContext : DbContext
     public DbSet<OtherVideoMetadata> OtherVideoMetadata { get; set; }
     public DbSet<Song> Songs { get; set; }
     public DbSet<SongMetadata> SongMetadata { get; set; }
+    public DbSet<Image> Images { get; set; }
+    public DbSet<ImageMetadata> ImageMetadata { get; set; }
+    public DbSet<ImageFolderDuration> ImageFolderDurations { get; set; }
     public DbSet<Show> Shows { get; set; }
     public DbSet<ShowMetadata> ShowMetadata { get; set; }
     public DbSet<Season> Seasons { get; set; }
@@ -62,6 +66,7 @@ public class TvContext : DbContext
     public DbSet<PlexShow> PlexShows { get; set; }
     public DbSet<PlexSeason> PlexSeasons { get; set; }
     public DbSet<PlexEpisode> PlexEpisodes { get; set; }
+    public DbSet<PlexCollection> PlexCollections { get; set; }
     public DbSet<JellyfinMovie> JellyfinMovies { get; set; }
     public DbSet<JellyfinShow> JellyfinShows { get; set; }
     public DbSet<JellyfinSeason> JellyfinSeasons { get; set; }
@@ -82,6 +87,18 @@ public class TvContext : DbContext
     public DbSet<ProgramScheduleAlternate> ProgramScheduleAlternates { get; set; }
     public DbSet<PlayoutItem> PlayoutItems { get; set; }
     public DbSet<PlayoutProgramScheduleAnchor> PlayoutProgramScheduleItemAnchors { get; set; }
+    public DbSet<PlayoutTemplate> PlayoutTemplates { get; set; }
+    public DbSet<BlockGroup> BlockGroups { get; set; }
+    public DbSet<Block> Blocks { get; set; }
+    public DbSet<BlockItem> BlockItems { get; set; }
+    public DbSet<TemplateGroup> TemplateGroups { get; set; }
+    public DbSet<Template> Templates { get; set; }
+    public DbSet<TemplateItem> TemplateItems { get; set; }
+    public DbSet<DecoGroup> DecoGroups { get; set; }
+    public DbSet<Deco> Decos { get; set; }
+    public DbSet<DecoTemplateGroup> DecoTemplateGroups { get; set; }
+    public DbSet<DecoTemplate> DecoTemplates { get; set; }
+    public DbSet<DecoTemplateItem> DecoTemplateItems { get; set; }
     public DbSet<FFmpegProfile> FFmpegProfiles { get; set; }
     public DbSet<Resolution> Resolutions { get; set; }
     public DbSet<LanguageCode> LanguageCodes { get; set; }

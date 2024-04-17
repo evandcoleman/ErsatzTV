@@ -4,6 +4,7 @@ using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Errors;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Metadata;
+using ErsatzTV.Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -173,27 +174,35 @@ public class TelevisionRepository : ITelevisionRepository
 
     public async Task<List<Season>> GetPagedSeasons(int televisionShowId, int pageNumber, int pageSize)
     {
+        var result = new List<Season>();
+
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
 
-        List<int> showIds = await dbContext.Connection.QueryAsync<int>(
-                @"SELECT m1.ShowId
-                FROM ShowMetadata m1
-                LEFT OUTER JOIN ShowMetadata m2 ON m2.ShowId = @ShowId
-                WHERE m1.Title = m2.Title AND m1.Year = m2.Year",
-                new { ShowId = televisionShowId })
-            .Map(results => results.ToList());
+        Option<ShowMetadata> maybeShowMetadata = await dbContext.ShowMetadata
+            .SelectOneAsync(sm => sm.Id, sm => sm.ShowId == televisionShowId);
 
-        return await dbContext.Seasons
-            .AsNoTracking()
-            .Where(s => showIds.Contains(s.ShowId))
-            .Include(s => s.SeasonMetadata)
-            .ThenInclude(sm => sm.Artwork)
-            .Include(s => s.Show)
-            .ThenInclude(s => s.ShowMetadata)
-            .OrderBy(s => s.SeasonNumber)
-            .Skip((pageNumber - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync();
+        foreach (ShowMetadata showMetadata in maybeShowMetadata)
+        {
+            List<int> showIds = await dbContext.ShowMetadata
+                .Filter(sm => sm.Title == showMetadata.Title && sm.Year == showMetadata.Year)
+                .Map(sm => sm.ShowId)
+                .ToListAsync();
+
+            result.AddRange(
+                await dbContext.Seasons
+                    .AsNoTracking()
+                    .Where(s => showIds.Contains(s.ShowId))
+                    .Include(s => s.SeasonMetadata)
+                    .ThenInclude(sm => sm.Artwork)
+                    .Include(s => s.Show)
+                    .ThenInclude(s => s.ShowMetadata)
+                    .OrderBy(s => s.SeasonNumber)
+                    .Skip((pageNumber - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToListAsync());
+        }
+
+        return result;
     }
 
     public async Task<int> GetEpisodeCount(int seasonId)
@@ -347,6 +356,7 @@ public class TelevisionRepository : ITelevisionRepository
     public async Task<Either<BaseError, Episode>> GetOrAddEpisode(
         Season season,
         LibraryPath libraryPath,
+        LibraryFolder libraryFolder,
         string path)
     {
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
@@ -398,7 +408,7 @@ public class TelevisionRepository : ITelevisionRepository
 
                 return episode;
             },
-            async () => await AddEpisode(dbContext, season, libraryPath.Id, path));
+            async () => await AddEpisode(dbContext, season, libraryPath.Id, libraryFolder.Id, path));
     }
 
     public async Task<IEnumerable<string>> FindEpisodePaths(LibraryPath libraryPath)
@@ -516,6 +526,22 @@ public class TelevisionRepository : ITelevisionRepository
             new { Plot = plot, MetadataId = metadata.Id }).Map(result => result > 0);
     }
 
+    public async Task<bool> UpdateYear(ShowMetadata metadata, int? year)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+        return await dbContext.Connection.ExecuteAsync(
+            "UPDATE ShowMetadata SET Year = @Year WHERE Id = @MetadataId",
+            new { Year = year, MetadataId = metadata.Id }).Map(result => result > 0);
+    }
+
+    public async Task<bool> UpdateTitles(ShowMetadata metadata, string title, string sortTitle)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+        return await dbContext.Connection.ExecuteAsync(
+            "UPDATE ShowMetadata SET Title = @Title, SortTitle = @SortTitle WHERE Id = @MetadataId",
+            new { Title = title, SortTitle = sortTitle, MetadataId = metadata.Id }).Map(result => result > 0);
+    }
+
     public async Task<List<Episode>> GetShowItems(int showId)
     {
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
@@ -574,7 +600,7 @@ public class TelevisionRepository : ITelevisionRepository
             new { genre.Name, MetadataId = metadata.Id }).Map(result => result > 0);
     }
 
-    public async Task<bool> AddTag(Metadata metadata, Tag tag)
+    public async Task<bool> AddTag(Core.Domain.Metadata metadata, Tag tag)
     {
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
 
@@ -706,6 +732,7 @@ public class TelevisionRepository : ITelevisionRepository
         TvContext dbContext,
         Season season,
         int libraryPathId,
+        int libraryFolderId,
         string path)
     {
         try
@@ -719,34 +746,31 @@ public class TelevisionRepository : ITelevisionRepository
             {
                 LibraryPathId = libraryPathId,
                 SeasonId = season.Id,
-                EpisodeMetadata = new List<EpisodeMetadata>
-                {
-                    new()
+                EpisodeMetadata =
+                [
+                    new EpisodeMetadata
                     {
                         DateAdded = DateTime.UtcNow,
                         DateUpdated = SystemTime.MinValueUtc,
                         MetadataKind = MetadataKind.Fallback,
-                        Actors = new List<Actor>(),
-                        Guids = new List<MetadataGuid>(),
-                        Writers = new List<Writer>(),
-                        Directors = new List<Director>(),
-                        Genres = new List<Genre>(),
-                        Tags = new List<Tag>(),
-                        Studios = new List<Studio>()
+                        Actors = [],
+                        Guids = [],
+                        Writers = [],
+                        Directors = [],
+                        Genres = [],
+                        Tags = [],
+                        Studios = []
                     }
-                },
-                MediaVersions = new List<MediaVersion>
-                {
-                    new()
+                ],
+                MediaVersions =
+                [
+                    new MediaVersion
                     {
-                        MediaFiles = new List<MediaFile>
-                        {
-                            new() { Path = path }
-                        },
-                        Streams = new List<MediaStream>()
+                        MediaFiles = [new MediaFile { Path = path, LibraryFolderId = libraryFolderId }],
+                        Streams = []
                     }
-                },
-                TraktListItems = new List<TraktListItem>()
+                ],
+                TraktListItems = []
             };
             await dbContext.Episodes.AddAsync(episode);
             await dbContext.SaveChangesAsync();

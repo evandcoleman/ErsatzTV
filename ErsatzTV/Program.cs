@@ -4,7 +4,6 @@ using System.Runtime.InteropServices;
 using Destructurama;
 using ErsatzTV.Core;
 using Serilog;
-using Serilog.Core;
 using Serilog.Events;
 using Serilog.Sinks.SystemConsole.Themes;
 
@@ -35,12 +34,12 @@ public class Program
             .AddEnvironmentVariables()
             .Build();
 
-        LoggingLevelSwitch = new LoggingLevelSwitch();
+        LoggingLevelSwitches = new LoggingLevelSwitches();
     }
 
     private static IConfiguration Configuration { get; }
 
-    private static LoggingLevelSwitch LoggingLevelSwitch { get; }
+    private static LoggingLevelSwitches LoggingLevelSwitches { get; }
 
     public static async Task<int> Main(string[] args)
     {
@@ -54,11 +53,38 @@ public class Program
             return 1;
         }
 
-        LoggingLevelSwitch.MinimumLevel = LogEventLevel.Information;
+        LoggingLevelSwitches.DefaultLevelSwitch.MinimumLevel = LogEventLevel.Information;
+        LoggingLevelSwitches.ScanningLevelSwitch.MinimumLevel = LogEventLevel.Information;
+        LoggingLevelSwitches.SchedulingLevelSwitch.MinimumLevel = LogEventLevel.Information;
+        LoggingLevelSwitches.StreamingLevelSwitch.MinimumLevel = LogEventLevel.Information;
+        LoggingLevelSwitches.HttpLevelSwitch.MinimumLevel = LogEventLevel.Information;
 
         LoggerConfiguration loggerConfiguration = new LoggerConfiguration()
             .ReadFrom.Configuration(Configuration)
-            .MinimumLevel.ControlledBy(LoggingLevelSwitch)
+            .MinimumLevel.ControlledBy(LoggingLevelSwitches.DefaultLevelSwitch)
+
+            // scanning
+            .MinimumLevel.Override("ErsatzTV.Services.ScannerService", LoggingLevelSwitches.ScanningLevelSwitch)
+            .MinimumLevel.Override("ErsatzTV.Services.SearchIndexService", LoggingLevelSwitches.ScanningLevelSwitch)
+            .MinimumLevel.Override("ErsatzTV.Scanner", LoggingLevelSwitches.ScanningLevelSwitch)
+
+            // scheduling
+            .MinimumLevel.Override("ErsatzTV.Core.Scheduling", LoggingLevelSwitches.SchedulingLevelSwitch)
+            .MinimumLevel.Override(
+                "ErsatzTV.Application.Subtitles.ExtractEmbeddedSubtitlesHandler",
+                LoggingLevelSwitches.SchedulingLevelSwitch)
+
+            // streaming
+            .MinimumLevel.Override("ErsatzTV.Application.Streaming", LoggingLevelSwitches.StreamingLevelSwitch)
+            .MinimumLevel.Override("ErsatzTV.FFmpeg", LoggingLevelSwitches.StreamingLevelSwitch)
+            .MinimumLevel.Override(
+                "ErsatzTV.Core.FFmpeg.FFmpegLibraryProcessService",
+                LoggingLevelSwitches.StreamingLevelSwitch)
+            .MinimumLevel.Override("ErsatzTV.Controllers.IptvController", LoggingLevelSwitches.StreamingLevelSwitch)
+            .MinimumLevel.Override("ErsatzTV.Controllers.InternalController", LoggingLevelSwitches.StreamingLevelSwitch)
+
+            // http
+            .MinimumLevel.Override("Serilog.AspNetCore.RequestLoggingMiddleware", LoggingLevelSwitches.HttpLevelSwitch)
             .Destructure.UsingAttributes()
             .Enrich.FromLogContext()
             .WriteTo.File(
@@ -104,7 +130,7 @@ public class Program
 
     private static IHostBuilder CreateHostBuilder(string[] args) =>
         Host.CreateDefaultBuilder(args)
-            .ConfigureServices(services => services.AddSingleton(LoggingLevelSwitch))
+            .ConfigureServices(services => services.AddSingleton(LoggingLevelSwitches))
             .ConfigureWebHostDefaults(
                 webBuilder => webBuilder.UseStartup<Startup>()
                     .UseConfiguration(Configuration)

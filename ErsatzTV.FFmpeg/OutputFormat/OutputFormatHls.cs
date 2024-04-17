@@ -4,10 +4,13 @@ namespace ErsatzTV.FFmpeg.OutputFormat;
 
 public class OutputFormatHls : IPipelineStep
 {
+    public const int SegmentSeconds = 4;
+
     private readonly FrameState _desiredState;
+    private readonly bool _isFirstTranscode;
     private readonly Option<string> _mediaFrameRate;
-    private readonly string _playlistPath;
     private readonly bool _oneSecondGop;
+    private readonly string _playlistPath;
     private readonly string _segmentTemplate;
 
     public OutputFormatHls(
@@ -15,44 +18,62 @@ public class OutputFormatHls : IPipelineStep
         Option<string> mediaFrameRate,
         string segmentTemplate,
         string playlistPath,
-        bool oneSecondGop = false)
+        bool isFirstTranscode,
+        bool oneSecondGop)
     {
         _desiredState = desiredState;
         _mediaFrameRate = mediaFrameRate;
         _segmentTemplate = segmentTemplate;
         _playlistPath = playlistPath;
+        _isFirstTranscode = isFirstTranscode;
         _oneSecondGop = oneSecondGop;
     }
 
-    public IList<EnvironmentVariable> EnvironmentVariables => Array.Empty<EnvironmentVariable>();
-    public IList<string> GlobalOptions => Array.Empty<string>();
-    public IList<string> InputOptions(InputFile inputFile) => Array.Empty<string>();
-    public IList<string> FilterOptions => Array.Empty<string>();
+    public EnvironmentVariable[] EnvironmentVariables => Array.Empty<EnvironmentVariable>();
+    public string[] GlobalOptions => Array.Empty<string>();
+    public string[] InputOptions(InputFile inputFile) => Array.Empty<string>();
+    public string[] FilterOptions => Array.Empty<string>();
 
-    public IList<string> OutputOptions
+    public string[] OutputOptions
     {
         get
         {
-            const int SEGMENT_SECONDS = 4;
             int frameRate = _desiredState.FrameRate.IfNone(GetFrameRateFromMedia);
 
-            int gop = _oneSecondGop ? frameRate : frameRate * SEGMENT_SECONDS;
-            
-            return new List<string>
-            {
+            int gop = _oneSecondGop ? frameRate : frameRate * SegmentSeconds;
+
+            List<string> result =
+            [
                 "-g", $"{gop}",
-                "-keyint_min", $"{frameRate * SEGMENT_SECONDS}",
-                "-force_key_frames", $"expr:gte(t,n_forced*{SEGMENT_SECONDS})",
+                "-keyint_min", $"{frameRate * SegmentSeconds}",
+                "-force_key_frames", $"expr:gte(t,n_forced*{SegmentSeconds})",
                 "-f", "hls",
-                "-hls_time", $"{SEGMENT_SECONDS}",
+                "-hls_time", $"{SegmentSeconds}",
                 "-hls_list_size", "0",
                 "-segment_list_flags", "+live",
                 "-hls_segment_filename",
-                _segmentTemplate,
-                "-hls_flags", "program_date_time+append_list+discont_start+omit_endlist+independent_segments",
-                "-mpegts_flags", "+initial_discontinuity",
-                _playlistPath
-            };
+                _segmentTemplate
+            ];
+
+            if (_isFirstTranscode)
+            {
+                result.AddRange(
+                [
+                    "-hls_flags", "program_date_time+append_list+omit_endlist+independent_segments",
+                    _playlistPath
+                ]);
+            }
+            else
+            {
+                result.AddRange(
+                [
+                    "-hls_flags", "program_date_time+append_list+discont_start+omit_endlist+independent_segments",
+                    "-mpegts_flags", "+initial_discontinuity",
+                    _playlistPath
+                ]);
+            }
+
+            return result.ToArray();
         }
     }
 

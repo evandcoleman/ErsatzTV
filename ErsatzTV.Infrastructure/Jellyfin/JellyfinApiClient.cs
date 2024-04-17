@@ -2,6 +2,7 @@
 using ErsatzTV.Core;
 using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Interfaces.Jellyfin;
+using ErsatzTV.Core.Interfaces.Metadata;
 using ErsatzTV.Core.Jellyfin;
 using ErsatzTV.Core.Metadata;
 using ErsatzTV.Infrastructure.Jellyfin.Models;
@@ -13,6 +14,7 @@ namespace ErsatzTV.Infrastructure.Jellyfin;
 
 public class JellyfinApiClient : IJellyfinApiClient
 {
+    private readonly IFallbackMetadataProvider _fallbackMetadataProvider;
     private readonly IJellyfinPathReplacementService _jellyfinPathReplacementService;
     private readonly ILogger<JellyfinApiClient> _logger;
     private readonly IMemoryCache _memoryCache;
@@ -20,10 +22,12 @@ public class JellyfinApiClient : IJellyfinApiClient
     public JellyfinApiClient(
         IMemoryCache memoryCache,
         IJellyfinPathReplacementService jellyfinPathReplacementService,
+        IFallbackMetadataProvider fallbackMetadataProvider,
         ILogger<JellyfinApiClient> logger)
     {
         _memoryCache = memoryCache;
         _jellyfinPathReplacementService = jellyfinPathReplacementService;
+        _fallbackMetadataProvider = fallbackMetadataProvider;
         _logger = logger;
     }
 
@@ -367,15 +371,25 @@ public class JellyfinApiClient : IJellyfinApiClient
             _ => None
         };
 
-    private static List<JellyfinPathInfo> GetPathInfos(JellyfinLibraryResponse response) =>
-        response.LibraryOptions.PathInfos
-            .Filter(pi => !string.IsNullOrWhiteSpace(pi.NetworkPath))
-            .Map(
-                pi => new JellyfinPathInfo
-                {
-                    Path = pi.Path,
-                    NetworkPath = pi.NetworkPath
-                }).ToList();
+    private static List<JellyfinPathInfo> GetPathInfos(JellyfinLibraryResponse response)
+    {
+        var result = new List<JellyfinPathInfo>();
+
+        if (response.LibraryOptions?.PathInfos is not null)
+        {
+            result.AddRange(
+                response.LibraryOptions.PathInfos
+                    .Filter(pi => !string.IsNullOrWhiteSpace(pi.NetworkPath))
+                    .Map(
+                        pi => new JellyfinPathInfo
+                        {
+                            Path = pi.Path,
+                            NetworkPath = pi.NetworkPath
+                        }));
+        }
+
+        return result;
+    }
 
     private Option<JellyfinLibrary> CacheCollectionLibraryId(string itemId)
     {
@@ -520,7 +534,7 @@ public class JellyfinApiClient : IJellyfinApiClient
             metadata.Artwork.Add(poster);
         }
 
-        if (item.BackdropImageTags.Any())
+        if (item.BackdropImageTags.Count != 0)
         {
             var fanArt = new Artwork
             {
@@ -654,7 +668,7 @@ public class JellyfinApiClient : IJellyfinApiClient
             metadata.Artwork.Add(thumb);
         }
 
-        if (item.BackdropImageTags.Any())
+        if (item.BackdropImageTags.Count != 0)
         {
             var fanArt = new Artwork
             {
@@ -698,7 +712,7 @@ public class JellyfinApiClient : IJellyfinApiClient
                 metadata.Artwork.Add(poster);
             }
 
-            if (item.BackdropImageTags.Any())
+            if (item.BackdropImageTags.Count != 0)
             {
                 var fanArt = new Artwork
                 {
@@ -720,6 +734,16 @@ public class JellyfinApiClient : IJellyfinApiClient
             if (item.IndexNumber.HasValue)
             {
                 season.SeasonNumber = item.IndexNumber.Value;
+            }
+            else
+            {
+                Option<int> maybeSeasonNumber =
+                    _fallbackMetadataProvider.GetSeasonNumberForFolder(item.Path ?? string.Empty);
+
+                foreach (int seasonNumber in maybeSeasonNumber)
+                {
+                    season.SeasonNumber = seasonNumber;
+                }
             }
 
             return season;

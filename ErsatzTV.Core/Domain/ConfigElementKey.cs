@@ -7,11 +7,17 @@ public class ConfigElementKey
     public string Key { get; }
 
     public static ConfigElementKey MinimumLogLevel => new("log.minimum_level");
+    public static ConfigElementKey MinimumLogLevelScanning => new("log.minimum_level.scanning");
+    public static ConfigElementKey MinimumLogLevelScheduling => new("log.minimum_level.scheduling");
+    public static ConfigElementKey MinimumLogLevelStreaming => new("log.minimum_level.streaming");
+    public static ConfigElementKey MinimumLogLevelHttp => new("log.minimum_level.http");
     public static ConfigElementKey FFmpegPath => new("ffmpeg.ffmpeg_path");
     public static ConfigElementKey FFprobePath => new("ffmpeg.ffprobe_path");
     public static ConfigElementKey FFmpegDefaultProfileId => new("ffmpeg.default_profile_id");
     public static ConfigElementKey FFmpegDefaultResolutionId => new("ffmpeg.default_resolution_id");
     public static ConfigElementKey FFmpegSaveReports => new("ffmpeg.save_reports");
+    public static ConfigElementKey FFmpegUseEmbeddedSubtitles => new("ffmpeg.use_embedded_subtitles");
+    public static ConfigElementKey FFmpegExtractEmbeddedSubtitles => new("ffmpeg.extract_embedded_subtitles");
     public static ConfigElementKey FFmpegPreferredLanguageCode => new("ffmpeg.preferred_language_code");
     public static ConfigElementKey FFmpegGlobalWatermarkId => new("ffmpeg.global_watermark_id");
     public static ConfigElementKey FFmpegGlobalFallbackFillerId => new("ffmpeg.global_fallback_filler_id");
@@ -36,4 +42,6 @@ public class ConfigElementKey
     public static ConfigElementKey LibraryRefreshInterval => new("scanner.library_refresh_interval");
     public static ConfigElementKey PlayoutDaysToBuild => new("playout.days_to_build");
     public static ConfigElementKey PlayoutSkipMissingItems => new("playout.skip_missing_items");
+    public static ConfigElementKey XmltvTimeZone => new("xmltv.time_zone");
+    public static ConfigElementKey XmltvDaysToBuild => new("xmltv.days_to_build");
 }

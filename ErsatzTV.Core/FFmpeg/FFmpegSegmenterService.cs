@@ -4,22 +4,77 @@ using Microsoft.Extensions.Logging;
 
 namespace ErsatzTV.Core.FFmpeg;
 
-public class FFmpegSegmenterService : IFFmpegSegmenterService
+public class FFmpegSegmenterService(ILogger<FFmpegSegmenterService> logger) : IFFmpegSegmenterService
 {
-    private readonly ILogger<FFmpegSegmenterService> _logger;
+    private readonly ConcurrentDictionary<string, IHlsSessionWorker> _sessionWorkers = new();
 
-    public FFmpegSegmenterService(ILogger<FFmpegSegmenterService> logger)
+    public event EventHandler OnWorkersChanged;
+
+    public ICollection<IHlsSessionWorker> Workers => _sessionWorkers.Values;
+
+    public bool TryGetWorker(string channelNumber, out IHlsSessionWorker worker) =>
+        _sessionWorkers.TryGetValue(channelNumber, out worker);
+
+    public bool TryAddWorker(string channelNumber, IHlsSessionWorker worker)
     {
-        _logger = logger;
+        var result = false;
 
-        SessionWorkers = new ConcurrentDictionary<string, IHlsSessionWorker>();
+        // check for worker
+        if (TryGetWorker(channelNumber, out IHlsSessionWorker existing))
+        {
+            // if worker is null, pretend we added it
+            if (existing is null)
+            {
+                result = true;
+            }
+
+            // if worker is not null, we cannot add one (so result should stay false)
+        }
+        else
+        {
+            // worker does not exist, so try adding a null one
+            result = _sessionWorkers.TryAdd(channelNumber, worker);
+        }
+
+        if (result)
+        {
+            OnWorkersChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        return result;
     }
 
-    public ConcurrentDictionary<string, IHlsSessionWorker> SessionWorkers { get; }
+    public void AddOrUpdateWorker(string channelNumber, IHlsSessionWorker worker)
+    {
+        _sessionWorkers.AddOrUpdate(channelNumber, _ => worker, (_, _) => worker);
+        OnWorkersChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void RemoveWorker(string channelNumber, out IHlsSessionWorker inactiveWorker)
+    {
+        _sessionWorkers.TryRemove(channelNumber, out inactiveWorker);
+        OnWorkersChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public bool IsActive(string channelNumber) => _sessionWorkers.ContainsKey(channelNumber);
+
+    public async Task<bool> StopChannel(string channelNumber, CancellationToken cancellationToken)
+    {
+        if (_sessionWorkers.TryGetValue(channelNumber, out IHlsSessionWorker worker))
+        {
+            if (worker != null)
+            {
+                await worker.Cancel(cancellationToken);
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public void TouchChannel(string channelNumber)
     {
-        if (SessionWorkers.TryGetValue(channelNumber, out IHlsSessionWorker worker))
+        if (_sessionWorkers.TryGetValue(channelNumber, out IHlsSessionWorker worker))
         {
             worker?.Touch();
         }
@@ -27,11 +82,11 @@ public class FFmpegSegmenterService : IFFmpegSegmenterService
 
     public void PlayoutUpdated(string channelNumber)
     {
-        if (SessionWorkers.TryGetValue(channelNumber, out IHlsSessionWorker worker))
+        if (_sessionWorkers.TryGetValue(channelNumber, out IHlsSessionWorker worker))
         {
             if (worker != null)
             {
-                _logger.LogInformation(
+                logger.LogInformation(
                     "Playout has been updated for channel {ChannelNumber}, HLS segmenter will skip ahead to catch up",
                     channelNumber);
 

@@ -4,6 +4,7 @@ using System.Threading.Channels;
 using ErsatzTV.Application.Subtitles;
 using ErsatzTV.Core;
 using ErsatzTV.Core.Domain;
+using ErsatzTV.Core.Interfaces.Search;
 using ErsatzTV.Infrastructure.Data;
 using ErsatzTV.Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
@@ -12,26 +13,19 @@ using Channel = ErsatzTV.Core.Domain.Channel;
 
 namespace ErsatzTV.Application.Channels;
 
-public class UpdateChannelHandler : IRequestHandler<UpdateChannel, Either<BaseError, ChannelViewModel>>
+public class UpdateChannelHandler(
+    ChannelWriter<IBackgroundServiceRequest> workerChannel,
+    IDbContextFactory<TvContext> dbContextFactory,
+    ISearchTargets searchTargets)
+    : IRequestHandler<UpdateChannel, Either<BaseError, ChannelViewModel>>
 {
-    private readonly IDbContextFactory<TvContext> _dbContextFactory;
-    private readonly ChannelWriter<IBackgroundServiceRequest> _workerChannel;
-
-    public UpdateChannelHandler(
-        ChannelWriter<IBackgroundServiceRequest> workerChannel,
-        IDbContextFactory<TvContext> dbContextFactory)
-    {
-        _workerChannel = workerChannel;
-        _dbContextFactory = dbContextFactory;
-    }
-
     public async Task<Either<BaseError, ChannelViewModel>> Handle(
         UpdateChannel request,
         CancellationToken cancellationToken)
     {
-        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using TvContext dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken);
         Validation<BaseError, Channel> validation = await Validate(dbContext, request);
-        return await LanguageExtensions.Apply(validation, c => ApplyUpdateRequest(dbContext, c, request));
+        return await validation.Apply(c => ApplyUpdateRequest(dbContext, c, request));
     }
 
     private async Task<ChannelViewModel> ApplyUpdateRequest(TvContext dbContext, Channel c, UpdateChannel update)
@@ -78,6 +72,8 @@ public class UpdateChannelHandler : IRequestHandler<UpdateChannel, Either<BaseEr
         c.FallbackFillerId = update.FallbackFillerId;
         await dbContext.SaveChangesAsync();
 
+        searchTargets.SearchTargetsChanged();
+
         if (c.SubtitleMode != ChannelSubtitleMode.None)
         {
             Option<Playout> maybePlayout = await dbContext.Playouts
@@ -85,9 +81,11 @@ public class UpdateChannelHandler : IRequestHandler<UpdateChannel, Either<BaseEr
 
             foreach (Playout playout in maybePlayout)
             {
-                await _workerChannel.WriteAsync(new ExtractEmbeddedSubtitles(playout.Id));
+                await workerChannel.WriteAsync(new ExtractEmbeddedSubtitles(playout.Id));
             }
         }
+
+        await workerChannel.WriteAsync(new RefreshChannelList());
 
         return ProjectToViewModel(c);
     }

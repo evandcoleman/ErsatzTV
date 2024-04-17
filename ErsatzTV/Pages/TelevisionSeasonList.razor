@@ -192,15 +192,16 @@
     private async Task RefreshData()
     {
         await _mediator.Send(new GetTelevisionShowById(ShowId), _cts.Token)
-            .IfSomeAsync(vm =>
-            {
-                _show = vm;
-                _sortedContentRatings = _show.ContentRatings.OrderBy(cr => cr).ToList();
-                _sortedLanguages = _show.Languages.OrderBy(ci => ci.EnglishName).ToList();
-                _sortedStudios = _show.Studios.OrderBy(s => s).ToList();
-                _sortedGenres = _show.Genres.OrderBy(g => g).ToList();
-                _sortedTags = _show.Tags.OrderBy(t => t).ToList();
-            });
+            .IfSomeAsync(
+                vm =>
+                {
+                    _show = vm;
+                    _sortedContentRatings = _show.ContentRatings.OrderBy(cr => cr).ToList();
+                    _sortedLanguages = _show.Languages.OrderBy(ci => ci.EnglishName).ToList();
+                    _sortedStudios = _show.Studios.OrderBy(s => s).ToList();
+                    _sortedGenres = _show.Genres.OrderBy(g => g).ToList();
+                    _sortedTags = _show.Tags.OrderBy(t => t).ToList();
+                });
 
         _data = await _mediator.Send(new GetTelevisionSeasonCards(ShowId, _pageNumber, _pageSize), _cts.Token);
     }
@@ -228,7 +229,7 @@
         DialogResult result = await dialog.Result;
         if (!result.Canceled && result.Data is ProgramScheduleViewModel schedule)
         {
-            await _mediator.Send(new AddProgramScheduleItem(schedule.Id, StartType.Dynamic, null, PlayoutMode.One, ProgramScheduleItemCollectionType.TelevisionShow, null, null, null, ShowId, PlaybackOrder.Shuffle, null, null, TailMode.None, null, null, GuideMode.Normal, null, null, null, null, null, null, null, null, null, null), _cts.Token);
+            await _mediator.Send(new AddProgramScheduleItem(schedule.Id, StartType.Dynamic, null, PlayoutMode.One, ProgramScheduleItemCollectionType.TelevisionShow, null, null, null, ShowId, PlaybackOrder.Shuffle, FillWithGroupMode.None, null, null, TailMode.None, null, null, GuideMode.Normal, null, null, null, null, null, null, null, null, null, null), _cts.Token);
             _navigationManager.NavigateTo($"schedules/{schedule.Id}/items");
         }
     }

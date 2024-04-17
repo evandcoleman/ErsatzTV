@@ -7,8 +7,9 @@ namespace ErsatzTV.Core.Extensions;
 
 public static class MediaItemExtensions
 {
-    public static Option<TimeSpan> GetDuration(this MediaItem mediaItem) =>
-        mediaItem switch
+    public static Option<TimeSpan> GetNonZeroDuration(this MediaItem mediaItem)
+    {
+        Option<TimeSpan> maybeDuration = mediaItem switch
         {
             Movie m => m.MediaVersions.HeadOrNone().Map(v => v.Duration),
             Episode e => e.MediaVersions.HeadOrNone().Map(v => v.Duration),
@@ -18,6 +19,10 @@ public static class MediaItemExtensions
             _ => None
         };
 
+        // zero duration is invalid, so return none in that case
+        return maybeDuration.Any(duration => duration == TimeSpan.Zero) ? Option<TimeSpan>.None : maybeDuration;
+    }
+
     public static MediaVersion GetHeadVersion(this MediaItem mediaItem) =>
         mediaItem switch
         {
@@ -26,6 +31,7 @@ public static class MediaItemExtensions
             MusicVideo mv => mv.MediaVersions.Head(),
             OtherVideo ov => ov.MediaVersions.Head(),
             Song s => s.MediaVersions.Head(),
+            Image i => i.MediaVersions.Head(),
             _ => throw new ArgumentOutOfRangeException(nameof(mediaItem))
         };
 

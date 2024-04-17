@@ -237,7 +237,7 @@ public class PlexTelevisionLibraryScanner :
         {
             Either<BaseError, EpisodeMetadata> maybeMetadata =
                 await _plexServerApiClient.GetEpisodeMetadataAndStatistics(
-                        library,
+                        library.MediaSourceId,
                         incoming.Key.Split("/").Last(),
                         connectionParameters.Connection,
                         connectionParameters.Token)
@@ -264,7 +264,7 @@ public class PlexTelevisionLibraryScanner :
 
         Either<BaseError, MediaVersion> maybeVersion =
             await _plexServerApiClient.GetEpisodeMetadataAndStatistics(
-                    library,
+                    library.MediaSourceId,
                     incoming.Key.Split("/").Last(),
                     connectionParameters.Connection,
                     connectionParameters.Token)
@@ -288,7 +288,7 @@ public class PlexTelevisionLibraryScanner :
 
         Either<BaseError, Tuple<EpisodeMetadata, MediaVersion>> maybeResult =
             await _plexServerApiClient.GetEpisodeMetadataAndStatistics(
-                library,
+                library.MediaSourceId,
                 incoming.Key.Split("/").Last(),
                 connectionParameters.Connection,
                 connectionParameters.Token);
@@ -413,6 +413,7 @@ public class PlexTelevisionLibraryScanner :
 
         foreach (Tag tag in existingMetadata.Tags
                      .Filter(g => fullMetadata.Tags.All(g2 => g2.Name != g.Name))
+                     .Filter(g => g.ExternalCollectionId is null)
                      .ToList())
         {
             existingMetadata.Tags.Remove(tag);
@@ -432,12 +433,30 @@ public class PlexTelevisionLibraryScanner :
                 result.IsUpdated = true;
             }
         }
+        
+        if (fullMetadata.SortTitle != existingMetadata.SortTitle || fullMetadata.Title != existingMetadata.Title)
+        {
+            existingMetadata.Title = fullMetadata.Title;
+            existingMetadata.SortTitle = fullMetadata.SortTitle;
+            if (await _televisionRepository.UpdateTitles(existingMetadata, fullMetadata.Title, fullMetadata.SortTitle))
+            {
+                result.IsUpdated = true;
+            }
+        }
 
         bool poster = await UpdateArtworkIfNeeded(existingMetadata, fullMetadata, ArtworkKind.Poster);
         bool fanArt = await UpdateArtworkIfNeeded(existingMetadata, fullMetadata, ArtworkKind.FanArt);
         if (poster || fanArt)
         {
             result.IsUpdated = true;
+        }
+
+        if (existingMetadata.Year != fullMetadata.Year)
+        {
+            if (await _televisionRepository.UpdateYear(existingMetadata, fullMetadata.Year))
+            {
+                result.IsUpdated = true;
+            }
         }
 
         if (result.IsUpdated)
@@ -479,6 +498,7 @@ public class PlexTelevisionLibraryScanner :
 
         foreach (Tag tag in existingMetadata.Tags
                      .Filter(g => fullMetadata.Tags.All(g2 => g2.Name != g.Name))
+                     .Filter(g => g.ExternalCollectionId is null)
                      .ToList())
         {
             existingMetadata.Tags.Remove(tag);
@@ -540,6 +560,7 @@ public class PlexTelevisionLibraryScanner :
 
         foreach (Tag tag in existingMetadata.Tags
                      .Filter(g => fullMetadata.Tags.All(g2 => g2.Name != g.Name))
+                     .Filter(g => g.ExternalCollectionId is null)
                      .ToList())
         {
             existingMetadata.Tags.Remove(tag);

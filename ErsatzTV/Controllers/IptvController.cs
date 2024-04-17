@@ -100,7 +100,7 @@ public class IptvController : ControllerBase
         FFmpegProcessRequest request = mode switch
         {
             "ts-legacy" => new GetConcatProcessByChannelNumber(Request.Scheme, Request.Host.ToString(), channelNumber),
-            _ => new GetWrappedProcessByChannelNumber(Request.Scheme, Request.Host.ToString(), channelNumber)
+            _ => new GetWrappedProcessByChannelNumber(Request.Scheme, Request.Host.ToString(), Request.Query["access_token"], channelNumber)
         };
 
         return await _mediator.Send(request)
@@ -111,7 +111,7 @@ public class IptvController : ControllerBase
                         Command command = processModel.Process;
 
                         _logger.LogInformation("Starting ts stream for channel {ChannelNumber}", channelNumber);
-                        _logger.LogInformation("ffmpeg arguments {FFmpegArguments}", command.Arguments);
+                        _logger.LogDebug("ffmpeg arguments {FFmpegArguments}", command.Arguments);
                         var process = new FFmpegProcess
                         {
                             StartInfo = new ProcessStartInfo
@@ -142,7 +142,7 @@ public class IptvController : ControllerBase
     {
         // _logger.LogDebug("Checking for session worker for channel {Channel}", channelNumber);
 
-        if (_ffmpegSegmenterService.SessionWorkers.TryGetValue(channelNumber, out IHlsSessionWorker worker))
+        if (_ffmpegSegmenterService.TryGetWorker(channelNumber, out IHlsSessionWorker worker) && worker is not null)
         {
             // _logger.LogDebug("Trimming playlist for channel {Channel}", channelNumber);
 
@@ -182,6 +182,9 @@ public class IptvController : ControllerBase
                     case StreamingMode.HttpLiveStreamingSegmenter:
                         mode = "segmenter";
                         break;
+                    case StreamingMode.HttpLiveStreamingSegmenterV2:
+                        mode = "segmenter-v2";
+                        break;
                     default:
                         return Redirect($"~/iptv/channel/{channelNumber}.ts{AccessTokenQuery()}");
                 }
@@ -191,15 +194,21 @@ public class IptvController : ControllerBase
         switch (mode)
         {
             case "segmenter":
-                _logger.LogDebug("Maybe starting ffmpeg session for channel {Channel}", channelNumber);
-                Either<BaseError, Unit> result = await _mediator.Send(new StartFFmpegSession(channelNumber, false));
+            case "segmenter-v2":
+                string multiVariantPlaylist = await GetMultiVariantPlaylist(channelNumber, mode);
+                _logger.LogDebug(
+                    "Maybe starting ffmpeg session for channel {Channel}, mode {Mode}",
+                    channelNumber,
+                    mode);
+                var request = new StartFFmpegSession(channelNumber, mode, Request.Scheme, Request.Host.ToString());
+                Either<BaseError, Unit> result = await _mediator.Send(request);
                 return result.Match<IActionResult>(
                     _ =>
                     {
                         _logger.LogDebug(
                             "Session started; returning multi-variant playlist for channel {Channel}",
                             channelNumber);
-                        return Content(GetMultiVariantPlaylist(channelNumber), "application/vnd.apple.mpegurl");
+                        return Content(multiVariantPlaylist, "application/vnd.apple.mpegurl");
                         // return Redirect($"~/iptv/session/{channelNumber}/hls.m3u8");
                     },
                     error =>
@@ -210,7 +219,7 @@ public class IptvController : ControllerBase
                                 _logger.LogDebug(
                                     "Session is already active; returning multi-variant playlist for channel {Channel}",
                                     channelNumber);
-                                return Content(GetMultiVariantPlaylist(channelNumber), "application/vnd.apple.mpegurl");
+                                return Content(multiVariantPlaylist, "application/vnd.apple.mpegurl");
                             // return RedirectPreserveMethod($"iptv/session/{channelNumber}/hls.m3u8");
                             default:
                                 _logger.LogWarning(
@@ -246,12 +255,28 @@ public class IptvController : ControllerBase
             Right: r => new PhysicalFileResult(r.FileName, r.MimeType));
     }
 
-    // TODO: include resolution here?
-    private string GetMultiVariantPlaylist(string channelNumber) =>
-        $@"#EXTM3U
+    private async Task<string> GetMultiVariantPlaylist(string channelNumber, string mode)
+    {
+        string file = mode switch
+        {
+            // this serves the unmodified playlist from disk
+            "segmenter-v2" => "live.m3u8",
+
+            _ => "hls.m3u8"
+        };
+
+        Option<ResolutionViewModel> maybeResolution = await _mediator.Send(new GetChannelResolution(channelNumber));
+        string resolution = string.Empty;
+        foreach (ResolutionViewModel res in maybeResolution)
+        {
+            resolution = $",RESOLUTION={res.Width}x{res.Height}";
+        }
+
+        return $@"#EXTM3U
 #EXT-X-VERSION:3
-#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=10000000
-{Request.Scheme}://{Request.Host}/iptv/session/{channelNumber}/hls.m3u8{AccessTokenQuery()}";
+#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=10000000{resolution}
+{Request.Scheme}://{Request.Host}/iptv/session/{channelNumber}/{file}{AccessTokenQuery()}";
+    }
 
     private string AccessTokenQuery() => string.IsNullOrWhiteSpace(Request.Query["access_token"])
         ? string.Empty

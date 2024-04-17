@@ -36,11 +36,29 @@ public class PlexEtag
             // media part id
             foreach (PlexPartResponse part in media.Part)
             {
+                bw.Write((byte)FieldKey.Key);
+                bw.Write(part.Key);
+                
                 bw.Write((byte)FieldKey.PartId);
                 bw.Write(part.Id);
 
                 bw.Write((byte)FieldKey.File);
                 bw.Write(part.File);
+
+                bw.Write((byte)FieldKey.Duration);
+                bw.Write(part.Duration);
+
+                bw.Write((byte)FieldKey.Size);
+                bw.Write(part.Size);
+
+                bw.Write((byte)FieldKey.Container);
+                bw.Write(part.Container ?? string.Empty);
+
+                bw.Write((byte)FieldKey.VideoProfile);
+                bw.Write(part.VideoProfile ?? string.Empty);
+
+                bw.Write((byte)FieldKey.AudioProfile);
+                bw.Write(part.AudioProfile ?? string.Empty);
             }
         }
 
@@ -199,11 +217,29 @@ public class PlexEtag
             // media part id
             foreach (PlexXmlPartResponse part in media.Part)
             {
+                bw.Write((byte)FieldKey.Key);
+                bw.Write(part.Key);
+                
                 bw.Write((byte)FieldKey.PartId);
                 bw.Write(part.Id);
 
                 bw.Write((byte)FieldKey.File);
                 bw.Write(part.File);
+
+                bw.Write((byte)FieldKey.Duration);
+                bw.Write(part.Duration);
+
+                bw.Write((byte)FieldKey.Size);
+                bw.Write(part.Size);
+
+                bw.Write((byte)FieldKey.Container);
+                bw.Write(part.Container ?? string.Empty);
+
+                bw.Write((byte)FieldKey.VideoProfile);
+                bw.Write(part.VideoProfile ?? string.Empty);
+
+                bw.Write((byte)FieldKey.AudioProfile);
+                bw.Write(part.AudioProfile ?? string.Empty);
 
                 // stream id
                 foreach (PlexStreamResponse stream in part.Stream)
@@ -254,6 +290,31 @@ public class PlexEtag
         return BitConverter.ToString(hash).Replace("-", string.Empty);
     }
 
+    public string ForCollection(PlexCollectionMetadataResponse response)
+    {
+        using MemoryStream ms = _recyclableMemoryStreamManager.GetStream();
+        using var bw = new BinaryWriter(ms);
+
+        // collection key
+        bw.Write(response.Key);
+
+        // collection added at
+        bw.Write(response.AddedAt);
+
+        // collection updated at
+        bw.Write(response.UpdatedAt);
+
+        // collection child count
+        bw.Write(response.ChildCount ?? "0");
+
+        // collection is smart collection
+        bw.Write(response.Smart ?? "0");
+
+        ms.Position = 0;
+        byte[] hash = SHA1.Create().ComputeHash(ms);
+        return BitConverter.ToString(hash).Replace("-", string.Empty);
+    }
+
     private enum FieldKey : byte
     {
         MediaId = 0,
@@ -270,6 +331,16 @@ public class PlexEtag
         Thumb = 20,
         Art = 21,
 
-        File = 30
+        File = 30,
+        Key = 31,
+
+        ChildCount = 40,
+        Smart = 41, // smart collection bool
+
+        Duration = 50,
+        Size = 51,
+        Container = 52,
+        VideoProfile = 53,
+        AudioProfile = 54
     }
 }

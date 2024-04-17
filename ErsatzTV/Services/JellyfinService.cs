@@ -32,6 +32,7 @@ public class JellyfinService : BackgroundService
         await Task.Yield();
 
         await _systemStartup.WaitForDatabase(stoppingToken);
+        await _systemStartup.WaitForSearchIndex(stoppingToken);
         if (stoppingToken.IsCancellationRequested)
         {
             return;
@@ -103,7 +104,7 @@ public class JellyfinService : BackgroundService
         result.Match(
             sources =>
             {
-                if (sources.Any())
+                if (sources.Count != 0)
                 {
                     _logger.LogInformation("Successfully synchronized jellyfin media sources");
                 }

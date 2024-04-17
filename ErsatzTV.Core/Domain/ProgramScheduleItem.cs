@@ -1,4 +1,5 @@
 ﻿using ErsatzTV.Core.Domain.Filler;
+using Newtonsoft.Json;
 
 namespace ErsatzTV.Core.Domain;
 
@@ -12,7 +13,10 @@ public abstract class ProgramScheduleItem
     public GuideMode GuideMode { get; set; }
     public string CustomTitle { get; set; }
     public int ProgramScheduleId { get; set; }
+
+    [JsonIgnore]
     public ProgramSchedule ProgramSchedule { get; set; }
+
     public int? CollectionId { get; set; }
     public Collection Collection { get; set; }
     public int? MediaItemId { get; set; }
@@ -21,6 +25,7 @@ public abstract class ProgramScheduleItem
     public MultiCollection MultiCollection { get; set; }
     public int? SmartCollectionId { get; set; }
     public SmartCollection SmartCollection { get; set; }
+    public string FakeCollectionKey { get; set; }
     public PlaybackOrder PlaybackOrder { get; set; }
     public int? PreRollFillerId { get; set; }
     public FillerPreset PreRollFiller { get; set; }
@@ -38,4 +43,5 @@ public abstract class ProgramScheduleItem
     public string PreferredAudioTitle { get; set; }
     public string PreferredSubtitleLanguageCode { get; set; }
     public ChannelSubtitleMode? SubtitleMode { get; set; }
+    public FillWithGroupMode FillWithGroupMode { get; set; }
 }

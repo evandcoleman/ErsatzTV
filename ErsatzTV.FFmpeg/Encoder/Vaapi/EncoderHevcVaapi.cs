@@ -12,11 +12,11 @@ public class EncoderHevcVaapi : EncoderBase
 
     public override StreamKind Kind => StreamKind.Video;
 
-    public override IList<string> OutputOptions
+    public override string[] OutputOptions
     {
         get
         {
-            IList<string> result = base.OutputOptions;
+            var result = new List<string>(base.OutputOptions);
 
             if (_rateControlMode == RateControlMode.CQP)
             {
@@ -24,7 +24,10 @@ public class EncoderHevcVaapi : EncoderBase
                 result.Add("1");
             }
 
-            return result;
+            result.Add("-sei");
+            result.Add("-a53_cc");
+
+            return result.ToArray();
         }
     }
 

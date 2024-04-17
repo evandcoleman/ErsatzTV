@@ -223,14 +223,15 @@
 
     private async Task RefreshData()
     {
-        await _mediator.Send(new GetArtistById(ArtistId), _cts.Token).IfSomeAsync(vm =>
-        {
-            _artist = vm;
-            _sortedLanguages = _artist.Languages.OrderBy(ci => ci.EnglishName).ToList();
-            _sortedGenres = _artist.Genres.OrderBy(g => g).ToList();
-            _sortedStyles = _artist.Styles.OrderBy(s => s).ToList();
-            _sortedMoods = _artist.Moods.OrderBy(m => m).ToList();
-        });
+        await _mediator.Send(new GetArtistById(ArtistId), _cts.Token).IfSomeAsync(
+            vm =>
+            {
+                _artist = vm;
+                _sortedLanguages = _artist.Languages.OrderBy(ci => ci.EnglishName).ToList();
+                _sortedGenres = _artist.Genres.OrderBy(g => g).ToList();
+                _sortedStyles = _artist.Styles.OrderBy(s => s).ToList();
+                _sortedMoods = _artist.Moods.OrderBy(m => m).ToList();
+            });
 
         _musicVideos = await _mediator.Send(new GetMusicVideoCards(ArtistId, 1, 100), _cts.Token);
     }
@@ -258,7 +259,7 @@
         DialogResult result = await dialog.Result;
         if (!result.Canceled && result.Data is ProgramScheduleViewModel schedule)
         {
-            await _mediator.Send(new AddProgramScheduleItem(schedule.Id, StartType.Dynamic, null, PlayoutMode.One, ProgramScheduleItemCollectionType.Artist, null, null, null, ArtistId, PlaybackOrder.Shuffle, null, null, TailMode.None, null, null, GuideMode.Normal, null, null, null, null, null, null, null, null, null, null), _cts.Token);
+            await _mediator.Send(new AddProgramScheduleItem(schedule.Id, StartType.Dynamic, null, PlayoutMode.One, ProgramScheduleItemCollectionType.Artist, null, null, null, ArtistId, PlaybackOrder.Shuffle, FillWithGroupMode.None, null, null, TailMode.None, null, null, GuideMode.Normal, null, null, null, null, null, null, null, null, null, null), _cts.Token);
             _navigationManager.NavigateTo($"schedules/{schedule.Id}/items");
         }
     }

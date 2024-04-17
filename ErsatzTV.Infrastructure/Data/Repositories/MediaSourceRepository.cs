@@ -104,7 +104,7 @@ public class MediaSourceRepository : IMediaSourceRepository
 
         dbContext.Entry(plexMediaSource).State = EntityState.Modified;
 
-        if (toAdd.Any() || toDelete.Any())
+        if (toAdd.Count != 0 || toDelete.Count != 0)
         {
             plexMediaSource.Connections.Clear();
             await dbContext.Entry(plexMediaSource).Collection(pms => pms.Connections).LoadAsync();
@@ -120,7 +120,22 @@ public class MediaSourceRepository : IMediaSourceRepository
             }
         }
 
-        await dbContext.SaveChangesAsync();
+        // TODO: possibly caused by https://github.com/dotnet/efcore/issues/33133
+        var success = false;
+        var attempts = 0;
+        while (!success && attempts < 3)
+        {
+            try
+            {
+                await dbContext.SaveChangesAsync();
+                success = true;
+            }
+            catch (DbUpdateException)
+            {
+                // do nothing
+                attempts++;
+            }
+        }
     }
 
     public async Task<List<int>> UpdateLibraries(
@@ -401,7 +416,7 @@ public class MediaSourceRepository : IMediaSourceRepository
         return await maybeExisting.Match(
             async jellyfinMediaSource =>
             {
-                if (!jellyfinMediaSource.Connections.Any())
+                if (jellyfinMediaSource.Connections.Count == 0)
                 {
                     jellyfinMediaSource.Connections.Add(new JellyfinConnection { Address = address });
                 }
@@ -637,7 +652,7 @@ public class MediaSourceRepository : IMediaSourceRepository
         return await maybeExisting.Match(
             async embyMediaSource =>
             {
-                if (!embyMediaSource.Connections.Any())
+                if (embyMediaSource.Connections.Count == 0)
                 {
                     embyMediaSource.Connections.Add(new EmbyConnection { Address = address });
                 }
@@ -872,5 +887,13 @@ public class MediaSourceRepository : IMediaSourceRepository
         return await dbContext.Connection.ExecuteAsync(
             "UPDATE JellyfinMediaSource SET LastCollectionsScan = @LastCollectionsScan WHERE Id = @Id",
             new { jellyfinMediaSource.LastCollectionsScan, jellyfinMediaSource.Id }).ToUnit();
+    }
+
+    public async Task<Unit> UpdateLastCollectionScan(PlexMediaSource plexMediaSource)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+        return await dbContext.Connection.ExecuteAsync(
+            "UPDATE PlexMediaSource SET LastCollectionsScan = @LastCollectionsScan WHERE Id = @Id",
+            new { plexMediaSource.LastCollectionsScan, plexMediaSource.Id }).ToUnit();
     }
 }

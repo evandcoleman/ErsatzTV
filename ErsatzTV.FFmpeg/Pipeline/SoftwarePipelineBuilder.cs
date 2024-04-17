@@ -21,6 +21,7 @@ public class SoftwarePipelineBuilder : PipelineBuilderBase
         Option<AudioInputFile> audioInputFile,
         Option<WatermarkInputFile> watermarkInputFile,
         Option<SubtitleInputFile> subtitleInputFile,
+        Option<ConcatInputFile> concatInputFile,
         string reportsFolder,
         string fontsFolder,
         ILogger logger) : base(
@@ -30,6 +31,7 @@ public class SoftwarePipelineBuilder : PipelineBuilderBase
         audioInputFile,
         watermarkInputFile,
         subtitleInputFile,
+        concatInputFile,
         reportsFolder,
         fontsFolder,
         logger) =>
@@ -67,7 +69,7 @@ public class SoftwarePipelineBuilder : PipelineBuilderBase
         FFmpegState ffmpegState,
         FrameState currentState,
         FrameState desiredState) =>
-        GetSoftwareEncoder(currentState, desiredState);
+        GetSoftwareEncoder(ffmpegState, currentState, desiredState);
 
     protected override FilterChain SetVideoFilters(
         VideoInputFile videoInputFile,
@@ -105,6 +107,7 @@ public class SoftwarePipelineBuilder : PipelineBuilderBase
             currentState = SetScale(videoInputFile, videoStream, desiredState, currentState);
             currentState = SetPad(videoInputFile, videoStream, desiredState, currentState);
             currentState = SetCrop(videoInputFile, desiredState, currentState);
+            SetStillImageLoop(videoInputFile, videoStream, desiredState, pipelineSteps);
             SetSubtitle(
                 videoInputFile,
                 subtitleInputFile,
@@ -258,7 +261,7 @@ public class SoftwarePipelineBuilder : PipelineBuilderBase
         PipelineContext context,
         FrameState desiredState,
         string fontsFolder,
-        ICollection<IPipelineFilterStep> subtitleOverlayFilterSteps)
+        List<IPipelineFilterStep> subtitleOverlayFilterSteps)
     {
         foreach (SubtitleInputFile subtitle in subtitleInputFile)
         {
@@ -306,7 +309,7 @@ public class SoftwarePipelineBuilder : PipelineBuilderBase
     {
         if (desiredState.CroppedSize.IsNone && currentState.PaddedSize != desiredState.PaddedSize)
         {
-            IPipelineFilterStep padStep = new PadFilter(currentState, desiredState.PaddedSize);
+            var padStep = new PadFilter(currentState, desiredState.PaddedSize);
             currentState = padStep.NextState(currentState);
             videoInputFile.FilterSteps.Add(padStep);
         }
@@ -322,7 +325,7 @@ public class SoftwarePipelineBuilder : PipelineBuilderBase
     {
         if (videoStream.FrameSize != desiredState.ScaledSize)
         {
-            IPipelineFilterStep scaleStep = new ScaleFilter(
+            var scaleStep = new ScaleFilter(
                 currentState,
                 desiredState.ScaledSize,
                 desiredState.PaddedSize,

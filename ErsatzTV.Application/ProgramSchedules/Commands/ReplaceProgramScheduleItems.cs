@@ -14,6 +14,7 @@ public record ReplaceProgramScheduleItem(
     int? SmartCollectionId,
     int? MediaItemId,
     PlaybackOrder PlaybackOrder,
+    FillWithGroupMode FillWithGroupMode,
     int? MultipleCount,
     TimeSpan? PlayoutDuration,
     TailMode TailMode,
@@ -31,6 +32,5 @@ public record ReplaceProgramScheduleItem(
     string PreferredSubtitleLanguageCode,
     ChannelSubtitleMode? SubtitleMode) : IProgramScheduleItemRequest;
 
-public record ReplaceProgramScheduleItems
-    (int ProgramScheduleId, List<ReplaceProgramScheduleItem> Items) : IRequest<
-        Either<BaseError, IEnumerable<ProgramScheduleItemViewModel>>>;
+public record ReplaceProgramScheduleItems(int ProgramScheduleId, List<ReplaceProgramScheduleItem> Items) : IRequest<
+    Either<BaseError, IEnumerable<ProgramScheduleItemViewModel>>>;

@@ -24,7 +24,13 @@ public interface ITelevisionRepository
     Task<Option<Show>> GetShowByMetadata(int libraryPathId, ShowMetadata metadata, string showFolder);
     Task<Either<BaseError, MediaItemScanResult<Show>>> AddShow(int libraryPathId, ShowMetadata metadata);
     Task<Either<BaseError, Season>> GetOrAddSeason(Show show, int libraryPathId, int seasonNumber);
-    Task<Either<BaseError, Episode>> GetOrAddEpisode(Season season, LibraryPath libraryPath, string path);
+
+    Task<Either<BaseError, Episode>> GetOrAddEpisode(
+        Season season,
+        LibraryPath libraryPath,
+        LibraryFolder libraryFolder,
+        string path);
+
     Task<IEnumerable<string>> FindEpisodePaths(LibraryPath libraryPath);
     Task<Unit> DeleteByPath(LibraryPath libraryPath, string path);
     Task<Unit> DeleteEmptySeasons(LibraryPath libraryPath);
@@ -41,4 +47,6 @@ public interface ITelevisionRepository
     Task<bool> UpdateTitles(EpisodeMetadata metadata, string title, string sortTitle);
     Task<bool> UpdateOutline(EpisodeMetadata metadata, string outline);
     Task<bool> UpdatePlot(EpisodeMetadata metadata, string plot);
+    Task<bool> UpdateYear(ShowMetadata metadata, int? year);
+    Task<bool> UpdateTitles(ShowMetadata metadata, string title, string sortTitle);
 }

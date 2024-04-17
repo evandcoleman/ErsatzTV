@@ -28,6 +28,8 @@ namespace ErsatzTV.Core.FFmpeg;
 
 internal class FFmpegProcessBuilder
 {
+    private static readonly string[] QuietArguments = { "-hide_banner", "-loglevel", "error", "-nostats" };
+
     private readonly List<string> _arguments = new();
     private readonly string _ffmpegPath;
     private FFmpegComplexFilterBuilder _complexFilterBuilder = new();
@@ -184,21 +186,21 @@ internal class FFmpegProcessBuilder
                 audioLabel = filter.AudioLabel;
             });
 
+        _arguments.Add("-map");
+        _arguments.Add(videoLabel);
+
         foreach (string _ in audioPath)
         {
             _arguments.Add("-map");
             _arguments.Add(audioLabel);
         }
 
-        _arguments.Add("-map");
-        _arguments.Add(videoLabel);
-
         return this;
     }
 
     public FFmpegProcessBuilder WithQuiet()
     {
-        _arguments.AddRange(new[] { "-hide_banner", "-loglevel", "error", "-nostats" });
+        _arguments.AddRange(QuietArguments);
         return this;
     }
 

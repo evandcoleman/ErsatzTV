@@ -1,4 +1,5 @@
-﻿using Bugsnag;
+﻿using System.Diagnostics.CodeAnalysis;
+using Bugsnag;
 using Dapper;
 using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Interfaces.Repositories;
@@ -51,6 +52,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
         result.AddRange(await GetMusicVideoItems(dbContext, id));
         result.AddRange(await GetOtherVideoItems(dbContext, id));
         result.AddRange(await GetSongItems(dbContext, id));
+        result.AddRange(await GetImageItems(dbContext, id));
 
         return result.Distinct().ToList();
     }
@@ -78,6 +80,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                 result.AddRange(await GetMusicVideoItems(dbContext, collectionId));
                 result.AddRange(await GetOtherVideoItems(dbContext, collectionId));
                 result.AddRange(await GetSongItems(dbContext, collectionId));
+                result.AddRange(await GetImageItems(dbContext, collectionId));
             }
 
             foreach (int smartCollectionId in multiCollection.SmartCollections.Map(c => c.Id))
@@ -149,6 +152,12 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                 .Map(i => i.Id)
                 .ToList();
             result.AddRange(await GetSongItems(dbContext, songIds));
+
+            var imageIds = searchResults.Items
+                .Filter(i => i.Type == LuceneSearchIndex.ImageType)
+                .Map(i => i.Id)
+                .ToList();
+            result.AddRange(await GetImageItems(dbContext, imageIds));
         }
 
         return result.DistinctBy(x => x.Id).ToList();
@@ -188,6 +197,8 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                         result.Add(
                             new CollectionWithItems(
                                 multiCollectionItem.CollectionId,
+                                multiCollectionItem.CollectionId,
+                                null,
                                 sortedItems,
                                 multiCollectionItem.ScheduleAsGroup,
                                 multiCollectionItem.PlaybackOrder,
@@ -199,6 +210,8 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                     result.Add(
                         new CollectionWithItems(
                             multiCollectionItem.CollectionId,
+                            multiCollectionItem.CollectionId,
+                            null,
                             items,
                             multiCollectionItem.ScheduleAsGroup,
                             multiCollectionItem.PlaybackOrder,
@@ -213,6 +226,8 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                 result.Add(
                     new CollectionWithItems(
                         multiCollectionSmartItem.SmartCollectionId,
+                        multiCollectionSmartItem.SmartCollectionId,
+                        null,
                         items,
                         multiCollectionSmartItem.ScheduleAsGroup,
                         multiCollectionSmartItem.PlaybackOrder,
@@ -326,7 +341,8 @@ public class MediaCollectionRepository : IMediaCollectionRepository
         };
     }
 
-    private static List<CollectionWithItems> GroupIntoFakeCollections(List<MediaItem> items)
+    [SuppressMessage("Performance", "CA1822:Mark members as static")]
+    public List<CollectionWithItems> GroupIntoFakeCollections(List<MediaItem> items, string fakeKey = null)
     {
         int id = -1;
         var result = new List<CollectionWithItems>();
@@ -346,11 +362,13 @@ public class MediaCollectionRepository : IMediaCollectionRepository
             showCollections[episode.Season.ShowId] = list;
         }
 
-        foreach ((int _, List<MediaItem> list) in showCollections)
+        foreach ((int showId, List<MediaItem> list) in showCollections)
         {
             result.Add(
                 new CollectionWithItems(
-                    id--,
+                    showId,
+                    0,
+                    fakeKey,
                     list,
                     true,
                     PlaybackOrder.Chronological,
@@ -372,11 +390,13 @@ public class MediaCollectionRepository : IMediaCollectionRepository
             artistCollections[musicVideo.ArtistId] = list;
         }
 
-        foreach ((int _, List<MediaItem> list) in artistCollections)
+        foreach ((int artistId, List<MediaItem> list) in artistCollections)
         {
             result.Add(
                 new CollectionWithItems(
-                    id--,
+                    0,
+                    artistId,
+                    fakeKey,
                     list,
                     true,
                     PlaybackOrder.Chronological,
@@ -385,7 +405,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
 
         var allArtists = items.OfType<Song>()
             .SelectMany(s => s.SongMetadata)
-            .Map(sm => sm.AlbumArtist)
+            .Map(sm => sm.AlbumArtists.HeadOrNone().Match(aa => aa, string.Empty))
             .Distinct()
             .ToList();
 
@@ -397,11 +417,16 @@ public class MediaCollectionRepository : IMediaCollectionRepository
         var songArtistCollections = new Dictionary<int, List<MediaItem>>();
         foreach (Song song in items.OfType<Song>())
         {
-            int key = allArtists.IndexOf(song.SongMetadata.HeadOrNone().Match(sm => sm.AlbumArtist, string.Empty));
+            string firstArtist = song.SongMetadata
+                .SelectMany(sm => sm.AlbumArtists)
+                .HeadOrNone()
+                .Match(aa => aa, string.Empty);
+
+            int key = allArtists.IndexOf(firstArtist);
 
             List<MediaItem> list = songArtistCollections.TryGetValue(key, out List<MediaItem> collection)
                 ? collection
-                : new List<MediaItem>();
+                : [];
 
             if (list.All(i => i.Id != song.Id))
             {
@@ -411,34 +436,43 @@ public class MediaCollectionRepository : IMediaCollectionRepository
             songArtistCollections[key] = list;
         }
 
-        foreach ((int _, List<MediaItem> list) in songArtistCollections)
+        foreach ((int index, List<MediaItem> list) in songArtistCollections)
         {
             result.Add(
                 new CollectionWithItems(
-                    id--,
+                    id,
+                    id,
+                    $"{fakeKey}:artist:{allArtists[index]}",
                     list,
                     true,
                     PlaybackOrder.Chronological,
                     false));
+
+            id--;
         }
 
         result.Add(
             new CollectionWithItems(
-                id--,
+                id,
+                id,
+                fakeKey,
                 items.OfType<Movie>().Cast<MediaItem>().ToList(),
                 true,
                 PlaybackOrder.Chronological,
                 false));
+        id--;
 
         result.Add(
             new CollectionWithItems(
                 id,
+                id,
+                fakeKey,
                 items.OfType<OtherVideo>().Cast<MediaItem>().ToList(),
                 true,
                 PlaybackOrder.Chronological,
                 false));
 
-        return result.Filter(c => c.MediaItems.Any()).ToList();
+        return result.Filter(c => c.MediaItems.Count != 0).ToList();
     }
 
     private static async Task<List<Movie>> GetMovieItems(TvContext dbContext, int collectionId)
@@ -557,6 +591,27 @@ public class MediaCollectionRepository : IMediaCollectionRepository
     private static Task<List<Song>> GetSongItems(TvContext dbContext, IEnumerable<int> songIds) =>
         dbContext.Songs
             .Include(m => m.SongMetadata)
+            .Include(m => m.MediaVersions)
+            .ThenInclude(mv => mv.Chapters)
+            .Include(m => m.MediaVersions)
+            .ThenInclude(mv => mv.MediaFiles)
+            .Filter(m => songIds.Contains(m.Id))
+            .ToListAsync();
+
+    private static async Task<List<Image>> GetImageItems(TvContext dbContext, int collectionId)
+    {
+        IEnumerable<int> ids = await dbContext.Connection.QueryAsync<int>(
+            @"SELECT i.Id FROM CollectionItem ci
+            INNER JOIN Image i ON i.Id = ci.MediaItemId
+            WHERE ci.CollectionId = @CollectionId",
+            new { CollectionId = collectionId });
+
+        return await GetImageItems(dbContext, ids);
+    }
+
+    private static Task<List<Image>> GetImageItems(TvContext dbContext, IEnumerable<int> songIds) =>
+        dbContext.Images
+            .Include(m => m.ImageMetadata)
             .Include(m => m.MediaVersions)
             .ThenInclude(mv => mv.Chapters)
             .Include(m => m.MediaVersions)

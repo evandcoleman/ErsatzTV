@@ -11,6 +11,7 @@ public class PlayoutItem
     public MediaItem MediaItem { get; set; }
     public DateTime Start { get; set; }
     public DateTime Finish { get; set; }
+    public DateTime? GuideStart { get; set; }
     public DateTime? GuideFinish { get; set; }
     public string CustomTitle { get; set; }
     public int GuideGroup { get; set; }
@@ -27,6 +28,9 @@ public class PlayoutItem
     public string PreferredAudioTitle { get; set; }
     public string PreferredSubtitleLanguageCode { get; set; }
     public ChannelSubtitleMode? SubtitleMode { get; set; }
+    public string BlockKey { get; set; }
+    public string CollectionKey { get; set; }
+    public string CollectionEtag { get; set; }
     public DateTimeOffset StartOffset => new DateTimeOffset(Start, TimeSpan.Zero).ToLocalTime();
     public DateTimeOffset FinishOffset => new DateTimeOffset(Finish, TimeSpan.Zero).ToLocalTime();
 

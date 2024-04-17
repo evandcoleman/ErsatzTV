@@ -43,6 +43,42 @@ public class ResourceExtractorService : BackgroundService
             FileSystemLayout.MusicVideoCreditsTemplatesFolder,
             stoppingToken);
 
+        await ExtractTemplateResource(
+            assembly,
+            "_channel.sbntxt",
+            FileSystemLayout.ChannelGuideTemplatesFolder,
+            stoppingToken);
+
+        await ExtractTemplateResource(
+            assembly,
+            "_movie.sbntxt",
+            FileSystemLayout.ChannelGuideTemplatesFolder,
+            stoppingToken);
+
+        await ExtractTemplateResource(
+            assembly,
+            "_episode.sbntxt",
+            FileSystemLayout.ChannelGuideTemplatesFolder,
+            stoppingToken);
+
+        await ExtractTemplateResource(
+            assembly,
+            "_musicVideo.sbntxt",
+            FileSystemLayout.ChannelGuideTemplatesFolder,
+            stoppingToken);
+
+        await ExtractTemplateResource(
+            assembly,
+            "_song.sbntxt",
+            FileSystemLayout.ChannelGuideTemplatesFolder,
+            stoppingToken);
+
+        await ExtractTemplateResource(
+            assembly,
+            "_otherVideo.sbntxt",
+            FileSystemLayout.ChannelGuideTemplatesFolder,
+            stoppingToken);
+
         await ExtractScriptResource(
             assembly,
             "_threePartEpisodes.js",

@@ -26,6 +26,11 @@ public class PlexTelevisionRepository : IPlexTelevisionRepository
 
     public async Task<Option<int>> FlagNormal(PlexLibrary library, PlexEpisode episode)
     {
+        if (episode.State is MediaItemState.Normal)
+        {
+            return Option<int>.None;
+        }
+
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
 
         episode.State = MediaItemState.Normal;
@@ -40,7 +45,7 @@ public class PlexTelevisionRepository : IPlexTelevisionRepository
         foreach (int id in maybeId)
         {
             return await dbContext.Connection.ExecuteAsync(
-                @"UPDATE MediaItem SET State = 0 WHERE Id = @Id",
+                "UPDATE MediaItem SET State = 0 WHERE Id = @Id AND State != 0",
                 new { Id = id }).Map(count => count > 0 ? Some(id) : None);
         }
 
@@ -49,6 +54,11 @@ public class PlexTelevisionRepository : IPlexTelevisionRepository
 
     public async Task<Option<int>> FlagNormal(PlexLibrary library, PlexSeason season)
     {
+        if (season.State is MediaItemState.Normal)
+        {
+            return Option<int>.None;
+        }
+
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
 
         season.State = MediaItemState.Normal;
@@ -63,7 +73,7 @@ public class PlexTelevisionRepository : IPlexTelevisionRepository
         foreach (int id in maybeId)
         {
             return await dbContext.Connection.ExecuteAsync(
-                @"UPDATE MediaItem SET State = 0 WHERE Id = @Id",
+                "UPDATE MediaItem SET State = 0 WHERE Id = @Id AND State != 0",
                 new { Id = id }).Map(count => count > 0 ? Some(id) : None);
         }
 
@@ -72,10 +82,15 @@ public class PlexTelevisionRepository : IPlexTelevisionRepository
 
     public async Task<Option<int>> FlagNormal(PlexLibrary library, PlexShow show)
     {
+        if (show.State is MediaItemState.Normal)
+        {
+            return Option<int>.None;
+        }
+
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
 
         show.State = MediaItemState.Normal;
-        
+
         Option<int> maybeId = await dbContext.Connection.ExecuteScalarAsync<int>(
             @"SELECT PlexShow.Id FROM PlexShow
             INNER JOIN MediaItem MI ON MI.Id = PlexShow.Id
@@ -86,7 +101,7 @@ public class PlexTelevisionRepository : IPlexTelevisionRepository
         foreach (int id in maybeId)
         {
             return await dbContext.Connection.ExecuteAsync(
-                @"UPDATE MediaItem SET State = 0 WHERE Id = @Id",
+                "UPDATE MediaItem SET State = 0 WHERE Id = @Id AND State != 0",
                 new { Id = id }).Map(count => count > 0 ? Some(id) : None);
         }
 
@@ -95,6 +110,11 @@ public class PlexTelevisionRepository : IPlexTelevisionRepository
 
     public async Task<Option<int>> FlagUnavailable(PlexLibrary library, PlexEpisode episode)
     {
+        if (episode.State is MediaItemState.Unavailable)
+        {
+            return Option<int>.None;
+        }
+
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
 
         episode.State = MediaItemState.Unavailable;
@@ -109,7 +129,7 @@ public class PlexTelevisionRepository : IPlexTelevisionRepository
         foreach (int id in maybeId)
         {
             return await dbContext.Connection.ExecuteAsync(
-                @"UPDATE MediaItem SET State = 2 WHERE Id = @Id",
+                "UPDATE MediaItem SET State = 2 WHERE Id = @Id AND State != 2",
                 new { Id = id }).Map(count => count > 0 ? Some(id) : None);
         }
 
@@ -118,6 +138,11 @@ public class PlexTelevisionRepository : IPlexTelevisionRepository
 
     public async Task<Option<int>> FlagRemoteOnly(PlexLibrary library, PlexEpisode episode)
     {
+        if (episode.State is MediaItemState.RemoteOnly)
+        {
+            return Option<int>.None;
+        }
+
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
 
         episode.State = MediaItemState.RemoteOnly;
@@ -132,7 +157,7 @@ public class PlexTelevisionRepository : IPlexTelevisionRepository
         foreach (int id in maybeId)
         {
             return await dbContext.Connection.ExecuteAsync(
-                @"UPDATE MediaItem SET State = 3 WHERE Id = @Id",
+                "UPDATE MediaItem SET State = 3 WHERE Id = @Id AND State != 3",
                 new { Id = id }).Map(count => count > 0 ? Some(id) : None);
         }
 
@@ -275,9 +300,7 @@ public class PlexTelevisionRepository : IPlexTelevisionRepository
         foreach (PlexEpisode plexEpisode in maybeExisting)
         {
             var result = new MediaItemScanResult<PlexEpisode>(plexEpisode) { IsAdded = false };
-
-            // deepScan isn't needed here since we create our own plex etags
-            if (plexEpisode.Etag != item.Etag)
+            if (plexEpisode.Etag != item.Etag || deepScan)
             {
                 foreach (BaseError error in await UpdateEpisodePath(dbContext, plexEpisode, item))
                 {
@@ -321,7 +344,7 @@ public class PlexTelevisionRepository : IPlexTelevisionRepository
     {
         if (showItemIds.Count == 0)
         {
-            return new List<int>();
+            return [];
         }
 
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
@@ -346,7 +369,7 @@ public class PlexTelevisionRepository : IPlexTelevisionRepository
     {
         if (seasonItemIds.Count == 0)
         {
-            return new List<int>();
+            return [];
         }
 
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
@@ -371,7 +394,7 @@ public class PlexTelevisionRepository : IPlexTelevisionRepository
     {
         if (episodeItemIds.Count == 0)
         {
-            return new List<int>();
+            return [];
         }
 
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
@@ -512,24 +535,33 @@ public class PlexTelevisionRepository : IPlexTelevisionRepository
             version.DateAdded = incomingVersion.DateAdded;
 
             // media file
-            MediaFile file = version.MediaFiles.Head();
-            MediaFile incomingFile = incomingVersion.MediaFiles.Head();
 
-            _logger.LogDebug(
-                "Updating plex episode (key {Key}) path from {Existing} to {Incoming}",
-                existing.Key,
-                file.Path,
-                incomingFile.Path);
+            if (version.MediaFiles.Head() is PlexMediaFile file &&
+                incomingVersion.MediaFiles.Head() is PlexMediaFile incomingFile)
+            {
+                _logger.LogDebug(
+                    "Updating plex episode (key {Key}) file key from {FK1} => {FK2}, path from {Existing} to {Incoming}",
+                    existing.Key,
+                    file.Key,
+                    incomingFile.Key,
+                    file.Path,
+                    incomingFile.Path);
 
-            file.Path = incomingFile.Path;
+                file.Path = incomingFile.Path;
+                file.Key = incomingFile.Key;
 
-            await dbContext.Connection.ExecuteAsync(
-                @"UPDATE MediaVersion SET Name = @Name, DateAdded = @DateAdded WHERE Id = @Id",
-                new { version.Name, version.DateAdded, version.Id });
+                await dbContext.Connection.ExecuteAsync(
+                    @"UPDATE MediaVersion SET Name = @Name, DateAdded = @DateAdded WHERE Id = @Id",
+                    new { version.Name, version.DateAdded, version.Id });
 
-            await dbContext.Connection.ExecuteAsync(
-                @"UPDATE MediaFile SET Path = @Path WHERE Id = @Id",
-                new { file.Path, file.Id });
+                await dbContext.Connection.ExecuteAsync(
+                    @"UPDATE MediaFile SET Path = @Path WHERE Id = @Id",
+                    new { file.Path, file.Id });
+
+                await dbContext.Connection.ExecuteAsync(
+                    @"UPDATE PlexMediaFile SET Key = @Key WHERE Id = @Id",
+                    new { file.Key, file.Id });
+            }
 
             return Option<BaseError>.None;
         }

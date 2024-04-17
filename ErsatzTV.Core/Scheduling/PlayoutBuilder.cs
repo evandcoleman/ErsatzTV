@@ -1,9 +1,11 @@
-﻿using ErsatzTV.Core.Domain;
+﻿using System.Reflection;
+using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Extensions;
 using ErsatzTV.Core.Interfaces.Metadata;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Interfaces.Scheduling;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 using Map = LanguageExt.Map;
 
 namespace ErsatzTV.Core.Scheduling;
@@ -41,6 +43,17 @@ public class PlayoutBuilder : IPlayoutBuilder
 
     public async Task<Playout> Build(Playout playout, PlayoutBuildMode mode, CancellationToken cancellationToken)
     {
+        if (playout.ProgramSchedulePlayoutType is not ProgramSchedulePlayoutType.Flood)
+        {
+            _logger.LogWarning(
+                "Skipping playout build with type {Type} on channel {Number} - {Name}",
+                playout.ProgramSchedulePlayoutType,
+                playout.Channel.Number,
+                playout.Channel.Name);
+
+            return playout;
+        }
+
         foreach (PlayoutParameters parameters in await Validate(playout))
         {
             // for testing purposes
@@ -251,7 +264,7 @@ public class PlayoutBuilder : IPlayoutBuilder
     private async Task<Option<PlayoutParameters>> Validate(Playout playout)
     {
         Map<CollectionKey, List<MediaItem>> collectionMediaItems = await GetCollectionMediaItems(playout);
-        if (!collectionMediaItems.Any())
+        if (collectionMediaItems.IsEmpty)
         {
             _logger.LogWarning("Playout {Playout} has no items", playout.Channel.Name);
             return None;
@@ -287,8 +300,8 @@ public class PlayoutBuilder : IPlayoutBuilder
             return None;
         }
 
-        playout.Items ??= new List<PlayoutItem>();
-        playout.ProgramScheduleAnchors ??= new List<PlayoutProgramScheduleAnchor>();
+        playout.Items ??= [];
+        playout.ProgramScheduleAnchors ??= [];
 
         Option<int> daysToBuild = await _configElementRepository.GetValue<int>(ConfigElementKey.PlayoutDaysToBuild);
 
@@ -402,6 +415,7 @@ public class PlayoutBuilder : IPlayoutBuilder
         IScheduleItemsEnumerator scheduleItemsEnumerator = activeSchedule.ShuffleScheduleItems
             ? new ShuffledScheduleItemsEnumerator(activeSchedule.Items, scheduleItemsEnumeratorState)
             : new OrderedScheduleItemsEnumerator(activeSchedule.Items, scheduleItemsEnumeratorState);
+
         var collectionEnumerators = new Dictionary<CollectionKey, IMediaCollectionEnumerator>();
         foreach ((CollectionKey collectionKey, List<MediaItem> mediaItems) in collectionMediaItems)
         {
@@ -420,6 +434,110 @@ public class PlayoutBuilder : IPlayoutBuilder
                     randomStartPoint,
                     cancellationToken);
             collectionEnumerators.Add(collectionKey, enumerator);
+        }
+
+        var collectionItemCount = collectionMediaItems.Map((k, v) => (k, v.Count)).Values.ToDictionary();
+
+        var scheduleItemsFillGroupEnumerators = new Dictionary<int, IScheduleItemsEnumerator>();
+        foreach (ProgramScheduleItem scheduleItem in sortedScheduleItems.Where(
+                     si => si.FillWithGroupMode is not FillWithGroupMode.None))
+        {
+            var collectionKey = CollectionKey.ForScheduleItem(scheduleItem);
+            List<MediaItem> mediaItems = await MediaItemsForCollection.Collect(
+                _mediaCollectionRepository,
+                _televisionRepository,
+                _artistRepository,
+                collectionKey);
+            string collectionKeyString = JsonConvert.SerializeObject(
+                collectionKey,
+                Formatting.None,
+                new JsonSerializerSettings
+                {
+                    NullValueHandling = NullValueHandling.Ignore
+                });
+            collectionKeyString = $"{scheduleItem.Id}:{collectionKeyString}";
+            var fakeCollections = _mediaCollectionRepository.GroupIntoFakeCollections(mediaItems, collectionKeyString)
+                .Filter(c => c.ShowId > 0 || c.ArtistId > 0 || !string.IsNullOrWhiteSpace(c.Key))
+                .ToList();
+            List<ProgramScheduleItem> fakeScheduleItems = [];
+
+            // this will be used to clone a schedule item 
+            MethodInfo generic = typeof(JsonConvert).GetMethods()
+                .FirstOrDefault(
+                    x => x.Name.Equals("DeserializeObject", StringComparison.OrdinalIgnoreCase) && x.IsGenericMethod &&
+                         x.GetParameters().Length == 1)?.MakeGenericMethod(scheduleItem.GetType());
+
+            foreach (CollectionWithItems fakeCollection in fakeCollections)
+            {
+                CollectionKey key = (fakeCollection.ShowId, fakeCollection.ArtistId, fakeCollection.Key) switch
+                {
+                    var (showId, _, _) when showId > 0 => new CollectionKey
+                    {
+                        CollectionType = ProgramScheduleItemCollectionType.TelevisionShow,
+                        MediaItemId = showId,
+                        FakeCollectionKey = collectionKeyString
+                    },
+                    var (_, artistId, _) when artistId > 0 => new CollectionKey
+                    {
+                        CollectionType = ProgramScheduleItemCollectionType.Artist,
+                        MediaItemId = artistId,
+                        FakeCollectionKey = collectionKeyString
+                    },
+                    var (_, _, k) when k is not null => new CollectionKey
+                    {
+                        CollectionType = ProgramScheduleItemCollectionType.FakeCollection,
+                        FakeCollectionKey = collectionKeyString
+                    },
+                    var (_, _, _) => null
+                };
+
+                if (key is null)
+                {
+                    continue;
+                }
+
+                string serialized = JsonConvert.SerializeObject(scheduleItem);
+                var copyScheduleItem = generic.Invoke(this, [serialized]) as ProgramScheduleItem;
+                copyScheduleItem.CollectionType = key.CollectionType;
+                copyScheduleItem.MediaItemId = key.MediaItemId;
+                copyScheduleItem.FakeCollectionKey = key.FakeCollectionKey;
+                fakeScheduleItems.Add(copyScheduleItem);
+
+                IMediaCollectionEnumerator enumerator = await GetMediaCollectionEnumerator(
+                    playout,
+                    activeSchedule,
+                    key,
+                    fakeCollection.MediaItems,
+                    scheduleItem.PlaybackOrder,
+                    randomStartPoint,
+                    cancellationToken);
+
+                collectionEnumerators.Add(key, enumerator);
+
+                // this makes multiple (0) work - since it needs the number of items in the collection
+                collectionItemCount.Add(key, fakeCollection.MediaItems.Count);
+            }
+
+            CollectionEnumeratorState enumeratorState =
+                playout.FillGroupIndices.Any(fgi => fgi.ProgramScheduleItemId == scheduleItem.Id)
+                    ? playout.FillGroupIndices.Find(fgi => fgi.ProgramScheduleItemId == scheduleItem.Id).EnumeratorState
+                    : new CollectionEnumeratorState { Seed = Random.Next(), Index = 0 };
+
+            switch (scheduleItem.FillWithGroupMode)
+            {
+                case FillWithGroupMode.FillWithOrderedGroups:
+                {
+                    var enumerator = new OrderedScheduleItemsEnumerator(fakeScheduleItems, enumeratorState);
+                    scheduleItemsFillGroupEnumerators[scheduleItem.Id] = enumerator;
+                    break;
+                }
+                case FillWithGroupMode.FillWithShuffledGroups:
+                {
+                    var enumerator = new ShuffledScheduleItemsEnumerator(fakeScheduleItems, enumeratorState);
+                    scheduleItemsFillGroupEnumerators[scheduleItem.Id] = enumerator;
+                    break;
+                }
+            }
         }
 
         // find start anchor
@@ -463,7 +581,7 @@ public class PlayoutBuilder : IPlayoutBuilder
             currentTime);
 
         var schedulerOne = new PlayoutModeSchedulerOne(_logger);
-        var schedulerMultiple = new PlayoutModeSchedulerMultiple(collectionMediaItems, _logger);
+        var schedulerMultiple = new PlayoutModeSchedulerMultiple(collectionItemCount.ToMap(), _logger);
         var schedulerDuration = new PlayoutModeSchedulerDuration(_logger);
         var schedulerFlood = new PlayoutModeSchedulerFlood(_logger);
 
@@ -494,6 +612,12 @@ public class PlayoutBuilder : IPlayoutBuilder
 
             // get the schedule item out of the sorted list
             ProgramScheduleItem scheduleItem = playoutBuilderState.ScheduleItemsEnumerator.Current;
+
+            // replace with the fake schedule item when filling with group
+            if (scheduleItem.FillWithGroupMode is not FillWithGroupMode.None)
+            {
+                scheduleItem = scheduleItemsFillGroupEnumerators[scheduleItem.Id].Current;
+            }
 
             ProgramScheduleItem nextScheduleItem = playoutBuilderState.ScheduleItemsEnumerator.Peek(1);
 
@@ -532,6 +656,15 @@ public class PlayoutBuilder : IPlayoutBuilder
 
             (PlayoutBuilderState nextState, List<PlayoutItem> playoutItems) = result;
 
+            // if we completed a multiple/duration block, move to the next fill group
+            if (scheduleItem.FillWithGroupMode is not FillWithGroupMode.None)
+            {
+                if (nextState.MultipleRemaining.IsNone && nextState.DurationFinish.IsNone)
+                {
+                    scheduleItemsFillGroupEnumerators[scheduleItem.Id].MoveNext();
+                }
+            }
+
             foreach (PlayoutItem playoutItem in playoutItems)
             {
                 playout.Items.Add(playoutItem);
@@ -543,7 +676,7 @@ public class PlayoutBuilder : IPlayoutBuilder
         // once more to get playout anchor
         ProgramScheduleItem anchorScheduleItem = playoutBuilderState.ScheduleItemsEnumerator.Current;
 
-        if (playout.Items.Any())
+        if (playout.Items.Count != 0)
         {
             DateTimeOffset maxStartTime = playout.Items.Max(i => i.FinishOffset);
             if (maxStartTime < playoutBuilderState.CurrentTime)
@@ -574,13 +707,44 @@ public class PlayoutBuilder : IPlayoutBuilder
         }
 
         // build program schedule anchors
-        playout.ProgramScheduleAnchors = BuildProgramScheduleAnchors(
-            playout,
-            activeSchedule,
-            collectionEnumerators,
-            saveAnchorDate);
+        playout.ProgramScheduleAnchors = BuildProgramScheduleAnchors(playout, collectionEnumerators, saveAnchorDate);
+
+        // build fill group indices
+        playout.FillGroupIndices = BuildFillGroupIndices(playout, scheduleItemsFillGroupEnumerators);
 
         return playout;
+    }
+
+    private static List<PlayoutScheduleItemFillGroupIndex> BuildFillGroupIndices(
+        Playout playout,
+        Dictionary<int, IScheduleItemsEnumerator> scheduleItemsFillGroupEnumerators)
+    {
+        var result = playout.FillGroupIndices.ToList();
+
+        foreach ((int programScheduleItemId, IScheduleItemsEnumerator enumerator) in scheduleItemsFillGroupEnumerators)
+        {
+            Option<PlayoutScheduleItemFillGroupIndex> maybeFgi = Optional(
+                result.FirstOrDefault(fgi => fgi.ProgramScheduleItemId == programScheduleItemId));
+
+            foreach (PlayoutScheduleItemFillGroupIndex fgi in maybeFgi)
+            {
+                fgi.EnumeratorState = enumerator.State;
+            }
+
+            if (maybeFgi.IsNone)
+            {
+                var fgi = new PlayoutScheduleItemFillGroupIndex
+                {
+                    PlayoutId = playout.Id,
+                    ProgramScheduleItemId = programScheduleItemId,
+                    EnumeratorState = enumerator.State
+                };
+
+                result.Add(fgi);
+            }
+        }
+
+        return result;
     }
 
     private async Task<Map<CollectionKey, List<MediaItem>>> GetCollectionMediaItems(Playout playout)
@@ -627,6 +791,7 @@ public class PlayoutBuilder : IPlayoutBuilder
                         .IfNoneAsync(TimeSpan.Zero) == TimeSpan.Zero,
                     Song s => await s.MediaVersions.Map(v => v.Duration).HeadOrNone()
                         .IfNoneAsync(TimeSpan.Zero) == TimeSpan.Zero,
+                    Image => false,
                     _ => true
                 };
 
@@ -655,7 +820,7 @@ public class PlayoutBuilder : IPlayoutBuilder
             items.RemoveAll(zeroItems.Contains);
         }
 
-        return collectionMediaItems.Find(c => !c.Value.Any()).Map(c => c.Key);
+        return collectionMediaItems.Find(c => c.Value.Count == 0).Map(c => c.Key);
     }
 
     private static PlayoutAnchor FindStartAnchor(
@@ -687,7 +852,6 @@ public class PlayoutBuilder : IPlayoutBuilder
 
     private static List<PlayoutProgramScheduleAnchor> BuildProgramScheduleAnchors(
         Playout playout,
-        ProgramSchedule activeSchedule,
         Dictionary<CollectionKey, IMediaCollectionEnumerator> collectionEnumerators,
         bool saveAnchorDate)
     {
@@ -699,6 +863,7 @@ public class PlayoutBuilder : IPlayoutBuilder
                 a => a.CollectionType == collectionKey.CollectionType
                      && a.CollectionId == collectionKey.CollectionId
                      && a.MediaItemId == collectionKey.MediaItemId
+                     && a.FakeCollectionKey == collectionKey.FakeCollectionKey
                      && a.SmartCollectionId == collectionKey.SmartCollectionId
                      && a.MultiCollectionId == collectionKey.MultiCollectionId
                      && a.AnchorDate is null);
@@ -720,6 +885,7 @@ public class PlayoutBuilder : IPlayoutBuilder
                     MultiCollectionId = collectionKey.MultiCollectionId,
                     SmartCollectionId = collectionKey.SmartCollectionId,
                     MediaItemId = collectionKey.MediaItemId,
+                    FakeCollectionKey = collectionKey.FakeCollectionKey,
                     EnumeratorState = maybeEnumeratorState[collectionKey]
                 });
 
@@ -930,6 +1096,10 @@ public class PlayoutBuilder : IPlayoutBuilder
                     () => "[unknown video]");
             case Song s:
                 return s.SongMetadata.HeadOrNone().Match(
+                    sm => sm.Title ?? string.Empty,
+                    () => "[unknown song]");
+            case Image i:
+                return i.ImageMetadata.HeadOrNone().Match(
                     sm => sm.Title ?? string.Empty,
                     () => "[unknown song]");
             default:

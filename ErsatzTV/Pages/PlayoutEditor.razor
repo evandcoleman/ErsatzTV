@@ -1,16 +1,29 @@
 ﻿@page "/playouts/add"
+@page "/playouts/add/{kind}"
 @using ErsatzTV.Application.Channels
 @using ErsatzTV.Application.ProgramSchedules
 @implements IDisposable
-@inject NavigationManager _navigationManager
-@inject ILogger<PlayoutEditor> _logger
-@inject ISnackbar _snackbar
-@inject IMediator _mediator
+@inject NavigationManager NavigationManager
+@inject ILogger<PlayoutEditor> Logger
+@inject ISnackbar Snackbar
+@inject IMediator Mediator
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pt-8">
+    <MudText Typo="Typo.h4" Class="mb-4">
+        @switch (Kind)
+        {
+            case PlayoutKind.ExternalJson:
+                <span>Add External Json Playout</span>
+                break;
+            case PlayoutKind.Block:
+                <span>Add Block Playout</span>
+                break;
+            default:
+                <span>Add Playout</span>
+                break;
+        }
+    </MudText>
     <div style="max-width: 400px;">
-        <MudText Typo="Typo.h4" Class="mb-4">Add Playout</MudText>
-
         <EditForm EditContext="_editContext" OnSubmit="@HandleSubmitAsync">
             <FluentValidationValidator/>
             <MudCard>
@@ -26,15 +39,22 @@
                             </MudSelectItem>
                         }
                     </MudSelect>
-                    <MudSelect Class="mt-3"
-                               T="ProgramScheduleViewModel"
-                               Label="Schedule"
-                               @bind-value="_model.ProgramSchedule">
-                        @foreach (ProgramScheduleViewModel schedule in _programSchedules)
-                        {
-                            <MudSelectItem Value="@schedule">@schedule.Name</MudSelectItem>
-                        }
-                    </MudSelect>
+                    @if (Kind == PlayoutKind.ExternalJson)
+                    {
+                        <MudTextField Label="External Json File" @bind-Value="_model.ExternalJsonFile" For="@(() => _model.ExternalJsonFile)"/>
+                    }
+                    else if (string.IsNullOrWhiteSpace(Kind))
+                    {
+                        <MudSelect Class="mt-3"
+                                   T="ProgramScheduleViewModel"
+                                   Label="Schedule"
+                                   @bind-value="_model.ProgramSchedule">
+                            @foreach (ProgramScheduleViewModel schedule in _programSchedules)
+                            {
+                                <MudSelectItem Value="@schedule">@schedule.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
                 </MudCardContent>
                 <MudCardActions>
                     <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary">
@@ -50,11 +70,14 @@
     private readonly CancellationTokenSource _cts = new();
 
     private readonly PlayoutEditViewModel _model = new();
-    private List<ChannelViewModel> _channels = new();
-    private List<ProgramScheduleViewModel> _programSchedules = new();
+    private List<ChannelViewModel> _channels = [];
+    private List<ProgramScheduleViewModel> _programSchedules = [];
 
     private EditContext _editContext;
     private ValidationMessageStore _messageStore;
+
+    [Parameter]
+    public string Kind { get; set; }
 
     public void Dispose()
     {
@@ -64,10 +87,16 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        _channels = await _mediator.Send(new GetAllChannels(), _cts.Token)
+        _model.Kind = Kind;
+
+        _channels = await Mediator.Send(new GetAllChannels(), _cts.Token)
             .Map(list => list.OrderBy(vm => decimal.Parse(vm.Number)).ToList());
-        _programSchedules = await _mediator.Send(new GetAllProgramSchedules(), _cts.Token)
-            .Map(list => list.OrderBy(vm => vm.Name).ToList());
+
+        if (string.IsNullOrWhiteSpace(Kind))
+        {
+            _programSchedules = await Mediator.Send(new GetAllProgramSchedules(), _cts.Token)
+                .Map(list => list.OrderBy(vm => vm.Name).ToList());
+        }
     }
 
     protected override void OnInitialized()
@@ -81,15 +110,15 @@
         _messageStore.Clear();
         if (_editContext.Validate())
         {
-            Seq<BaseError> errorMessage = (await _mediator.Send(_model.ToCreate(), _cts.Token)).LeftToSeq();
+            Seq<BaseError> errorMessage = (await Mediator.Send(_model.ToCreate(), _cts.Token)).LeftToSeq();
 
             errorMessage.HeadOrNone().Match(
                 error =>
                 {
-                    _snackbar.Add(error.Value, Severity.Error);
-                    _logger.LogError("Unexpected error saving playout: {Error}", error.Value);
+                    Snackbar.Add(error.Value, Severity.Error);
+                    Logger.LogError("Unexpected error saving playout: {Error}", error.Value);
                 },
-                () => _navigationManager.NavigateTo("/playouts"));
+                () => NavigationManager.NavigateTo("/playouts"));
         }
     }
 

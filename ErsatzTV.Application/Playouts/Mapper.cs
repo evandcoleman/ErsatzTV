@@ -22,7 +22,7 @@ internal static class Mapper
             programScheduleAlternate.DaysOfMonth,
             programScheduleAlternate.MonthsOfYear);
 
-    private static string GetDisplayTitle(PlayoutItem playoutItem)
+    internal static string GetDisplayTitle(PlayoutItem playoutItem)
     {
         switch (playoutItem.MediaItem)
         {
@@ -66,7 +66,7 @@ internal static class Mapper
                     .IfNone("[unknown video]");
             case Song s:
                 string songArtist = s.SongMetadata.HeadOrNone()
-                    .Map(sm => string.IsNullOrWhiteSpace(sm.Artist) ? string.Empty : $"{sm.Artist} - ")
+                    .Map(sm => $"{string.Join(", ", sm.Artists)} - ")
                     .IfNone(string.Empty);
                 return s.SongMetadata.HeadOrNone()
                     .Map(sm => $"{songArtist}{sm.Title ?? string.Empty}")
@@ -75,12 +75,14 @@ internal static class Mapper
                             ? t
                             : $"{s} ({playoutItem.ChapterTitle})")
                     .IfNone("[unknown song]");
+            case Image i:
+                return i.ImageMetadata.HeadOrNone().Map(im => im.Title ?? string.Empty).IfNone("[unknown image]");
             default:
                 return string.Empty;
         }
     }
 
-    private static string GetDisplayDuration(TimeSpan duration) =>
+    internal static string GetDisplayDuration(TimeSpan duration) =>
         string.Format(
             CultureInfo.InvariantCulture,
             duration.TotalHours >= 1 ? @"{0:h\:mm\:ss}" : @"{0:mm\:ss}",

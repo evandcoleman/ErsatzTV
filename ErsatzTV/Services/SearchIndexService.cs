@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using Bugsnag;
 using ErsatzTV.Application;
 using ErsatzTV.Application.Search;
+using ErsatzTV.Core;
 using MediatR;
 
 namespace ErsatzTV.Services;
@@ -9,16 +10,19 @@ namespace ErsatzTV.Services;
 public class SearchIndexService : BackgroundService
 {
     private readonly ChannelReader<ISearchIndexBackgroundServiceRequest> _channel;
-    private readonly ILogger<WorkerService> _logger;
+    private readonly ILogger<SearchIndexService> _logger;
     private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly SystemStartup _systemStartup;
 
     public SearchIndexService(
         ChannelReader<ISearchIndexBackgroundServiceRequest> channel,
         IServiceScopeFactory serviceScopeFactory,
-        ILogger<WorkerService> logger)
+        SystemStartup systemStartup,
+        ILogger<SearchIndexService> logger)
     {
         _channel = channel;
         _serviceScopeFactory = serviceScopeFactory;
+        _systemStartup = systemStartup;
         _logger = logger;
     }
 
@@ -26,6 +30,7 @@ public class SearchIndexService : BackgroundService
     {
         await Task.Yield();
 
+        await _systemStartup.WaitForDatabase(stoppingToken);
         try
         {
             _logger.LogInformation("Search index worker service started");
@@ -40,9 +45,11 @@ public class SearchIndexService : BackgroundService
                     switch (request)
                     {
                         case ReindexMediaItems reindexMediaItems:
+                            _logger.LogDebug("Reindexing media items: {MediaItemIds}", reindexMediaItems.MediaItemIds);
                             await mediator.Send(reindexMediaItems, stoppingToken);
                             break;
                         case RemoveMediaItems removeMediaItems:
+                            _logger.LogDebug("Removing media items: {MediaItemIds}", removeMediaItems.MediaItemIds);
                             await mediator.Send(removeMediaItems, stoppingToken);
                             break;
                     }

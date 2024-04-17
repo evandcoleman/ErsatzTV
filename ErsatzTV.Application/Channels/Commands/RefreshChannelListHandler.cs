@@ -5,7 +5,11 @@ using ErsatzTV.Core;
 using ErsatzTV.Core.Interfaces.Metadata;
 using ErsatzTV.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.IO;
+using Scriban;
+using Scriban.Runtime;
+using WebMarkupMin.Core;
 
 namespace ErsatzTV.Application.Channels;
 
@@ -13,16 +17,19 @@ public class RefreshChannelListHandler : IRequestHandler<RefreshChannelList>
 {
     private readonly IDbContextFactory<TvContext> _dbContextFactory;
     private readonly ILocalFileSystem _localFileSystem;
+    private readonly ILogger<RefreshChannelListHandler> _logger;
     private readonly RecyclableMemoryStreamManager _recyclableMemoryStreamManager;
 
     public RefreshChannelListHandler(
         RecyclableMemoryStreamManager recyclableMemoryStreamManager,
         IDbContextFactory<TvContext> dbContextFactory,
-        ILocalFileSystem localFileSystem)
+        ILocalFileSystem localFileSystem,
+        ILogger<RefreshChannelListHandler> logger)
     {
         _recyclableMemoryStreamManager = recyclableMemoryStreamManager;
         _dbContextFactory = dbContextFactory;
         _localFileSystem = localFileSystem;
+        _logger = logger;
     }
 
     public async Task Handle(RefreshChannelList request, CancellationToken cancellationToken)
@@ -31,41 +38,60 @@ public class RefreshChannelListHandler : IRequestHandler<RefreshChannelList>
 
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        using MemoryStream ms = _recyclableMemoryStreamManager.GetStream();
+        string templateFileName = Path.Combine(FileSystemLayout.ChannelGuideTemplatesFolder, "channel.sbntxt");
+
+        // fall back to default template
+        if (!_localFileSystem.FileExists(templateFileName))
+        {
+            templateFileName = Path.Combine(FileSystemLayout.ChannelGuideTemplatesFolder, "_channel.sbntxt");
+        }
+
+        // fail if file doesn't exist
+        if (!_localFileSystem.FileExists(templateFileName))
+        {
+            _logger.LogError(
+                "Unable to generate channel list without template file {File}; please restart ErsatzTV",
+                templateFileName);
+
+            return;
+        }
+
+        var minifier = new XmlMinifier(
+            new XmlMinificationSettings
+            {
+                MinifyWhitespace = true,
+                RemoveXmlComments = true,
+                CollapseTagsWithoutContent = true
+            });
+
+        string text = await File.ReadAllTextAsync(templateFileName, cancellationToken);
+        var template = Template.Parse(text, templateFileName);
+        var templateContext = new XmlTemplateContext();
+
+        await using RecyclableMemoryStream ms = _recyclableMemoryStreamManager.GetStream();
         await using var xml = XmlWriter.Create(
             ms,
             new XmlWriterSettings { Async = true, ConformanceLevel = ConformanceLevel.Fragment });
 
         await foreach (ChannelResult channel in GetChannels(dbContext).WithCancellation(cancellationToken))
         {
-            await xml.WriteStartElementAsync(null, "channel", null);
-            await xml.WriteAttributeStringAsync(null, "id", null, $"{channel.Number}.etv");
-
-            await xml.WriteStartElementAsync(null, "display-name", null);
-            await xml.WriteStringAsync($"{channel.Number} {channel.Name}");
-            await xml.WriteEndElementAsync(); // display-name (number and name)
-
-            await xml.WriteStartElementAsync(null, "display-name", null);
-            await xml.WriteStringAsync(channel.Number);
-            await xml.WriteEndElementAsync(); // display-name (number)
-
-            await xml.WriteStartElementAsync(null, "display-name", null);
-            await xml.WriteStringAsync(channel.Name);
-            await xml.WriteEndElementAsync(); // display-name (name)
-
-            foreach (string category in GetCategories(channel.Categories))
+            var data = new
             {
-                await xml.WriteStartElementAsync(null, "category", null);
-                await xml.WriteAttributeStringAsync(null, "lang", null, "en");
-                await xml.WriteStringAsync(category);
-                await xml.WriteEndElementAsync(); // category
-            }
+                ChannelNumber = channel.Number,
+                ChannelName = channel.Name,
+                ChannelCategories = GetCategories(channel.Categories),
+                ChannelHasArtwork = !string.IsNullOrWhiteSpace(channel.ArtworkPath),
+                ChannelArtworkPath = channel.ArtworkPath
+            };
 
-            await xml.WriteStartElementAsync(null, "icon", null);
-            await xml.WriteAttributeStringAsync(null, "src", null, GetIconUrl(channel));
-            await xml.WriteEndElementAsync(); // icon
+            var scriptObject = new ScriptObject();
+            scriptObject.Import(data);
+            templateContext.PushGlobal(scriptObject);
 
-            await xml.WriteEndElementAsync(); // channel
+            string result = await template.RenderAsync(templateContext);
+
+            MarkupMinificationResult minified = minifier.Minify(result);
+            await xml.WriteRawAsync(minified.MinifiedContent);
         }
 
         await xml.FlushAsync();

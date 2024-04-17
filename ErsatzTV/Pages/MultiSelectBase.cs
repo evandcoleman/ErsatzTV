@@ -18,7 +18,7 @@ public class MultiSelectBase<T> : FragmentNavigationBase
     public MultiSelectBase()
     {
         _recentlySelected = None;
-        SelectedItems = new System.Collections.Generic.HashSet<MediaCardViewModel>();
+        SelectedItems = [];
     }
 
     [Inject]
@@ -39,7 +39,7 @@ public class MultiSelectBase<T> : FragmentNavigationBase
         SelectedItems.Contains(card);
 
     protected bool IsSelectMode() =>
-        SelectedItems.Any();
+        SelectedItems.Count != 0;
 
     protected string SelectionLabel() =>
         $"{SelectedItems.Count} {(SelectedItems.Count == 1 ? "Item" : "Items")} Selected";
@@ -57,11 +57,7 @@ public class MultiSelectBase<T> : FragmentNavigationBase
         MediaCardViewModel card,
         MouseEventArgs e)
     {
-        if (SelectedItems.Contains(card))
-        {
-            SelectedItems.Remove(card);
-        }
-        else
+        if (!SelectedItems.Remove(card))
         {
             if (e.ShiftKey && _recentlySelected.IsSome)
             {
@@ -93,7 +89,8 @@ public class MultiSelectBase<T> : FragmentNavigationBase
         SelectedItems.OfType<ArtistCardViewModel>().Map(a => a.ArtistId).ToList(),
         SelectedItems.OfType<MusicVideoCardViewModel>().Map(mv => mv.MusicVideoId).ToList(),
         SelectedItems.OfType<OtherVideoCardViewModel>().Map(ov => ov.OtherVideoId).ToList(),
-        SelectedItems.OfType<SongCardViewModel>().Map(s => s.SongId).ToList());
+        SelectedItems.OfType<SongCardViewModel>().Map(s => s.SongId).ToList(),
+        SelectedItems.OfType<ImageCardViewModel>().Map(i => i.ImageId).ToList());
 
     protected async Task AddItemsToCollection(
         List<int> movieIds,
@@ -104,6 +101,7 @@ public class MultiSelectBase<T> : FragmentNavigationBase
         List<int> musicVideoIds,
         List<int> otherVideoIds,
         List<int> songIds,
+        List<int> imageIds,
         string entityName = "selected items")
     {
         int count = movieIds.Count + showIds.Count + seasonIds.Count + episodeIds.Count + artistIds.Count +
@@ -127,7 +125,8 @@ public class MultiSelectBase<T> : FragmentNavigationBase
                 artistIds,
                 musicVideoIds,
                 otherVideoIds,
-                songIds);
+                songIds,
+                imageIds);
 
             Either<BaseError, Unit> addResult = await Mediator.Send(request, CancellationToken);
             addResult.Match(

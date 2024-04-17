@@ -3,6 +3,7 @@ using ErsatzTV.Application.Playouts;
 using ErsatzTV.Core;
 using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Interfaces.Repositories;
+using ErsatzTV.Core.Interfaces.Search;
 using ErsatzTV.Core.Scheduling;
 using ErsatzTV.Infrastructure.Data;
 using ErsatzTV.Infrastructure.Extensions;
@@ -15,15 +16,18 @@ public class UpdateMultiCollectionHandler : IRequestHandler<UpdateMultiCollectio
     private readonly ChannelWriter<IBackgroundServiceRequest> _channel;
     private readonly IDbContextFactory<TvContext> _dbContextFactory;
     private readonly IMediaCollectionRepository _mediaCollectionRepository;
+    private readonly ISearchTargets _searchTargets;
 
     public UpdateMultiCollectionHandler(
         IDbContextFactory<TvContext> dbContextFactory,
         IMediaCollectionRepository mediaCollectionRepository,
-        ChannelWriter<IBackgroundServiceRequest> channel)
+        ChannelWriter<IBackgroundServiceRequest> channel,
+        ISearchTargets searchTargets)
     {
         _dbContextFactory = dbContextFactory;
         _mediaCollectionRepository = mediaCollectionRepository;
         _channel = channel;
+        _searchTargets = searchTargets;
     }
 
     public async Task<Either<BaseError, Unit>> Handle(
@@ -32,7 +36,7 @@ public class UpdateMultiCollectionHandler : IRequestHandler<UpdateMultiCollectio
     {
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         Validation<BaseError, MultiCollection> validation = await Validate(dbContext, request);
-        return await LanguageExtensions.Apply(validation, c => ApplyUpdateRequest(dbContext, c, request));
+        return await validation.Apply(c => ApplyUpdateRequest(dbContext, c, request));
     }
 
     private async Task<Unit> ApplyUpdateRequest(TvContext dbContext, MultiCollection c, UpdateMultiCollection request)
@@ -115,6 +119,8 @@ public class UpdateMultiCollectionHandler : IRequestHandler<UpdateMultiCollectio
         // rebuild playouts
         if (await dbContext.SaveChangesAsync() > 0)
         {
+            _searchTargets.SearchTargetsChanged();
+
             // refresh all playouts that use this collection
             foreach (int playoutId in await _mediaCollectionRepository.PlayoutIdsUsingMultiCollection(
                          request.MultiCollectionId))

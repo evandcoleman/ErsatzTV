@@ -11,7 +11,6 @@ using ErsatzTV.Core.Interfaces.Metadata;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Metadata;
 using ErsatzTV.Scanner.Core.Interfaces.FFmpeg;
-using ErsatzTV.Scanner.Core.Interfaces.Metadata;
 using Microsoft.Extensions.Logging;
 
 namespace ErsatzTV.Scanner.Core.Metadata;
@@ -20,8 +19,8 @@ public abstract class LocalFolderScanner
 {
     public static readonly ImmutableHashSet<string> VideoFileExtensions = new[]
     {
-        ".mpg", ".mp2", ".mpeg", ".mpe", ".mpv", ".ogg", ".mp4",
-        ".m4p", ".m4v", ".avi", ".wmv", ".mov", ".mkv", ".ts", ".webm"
+        ".mpg", ".mp2", ".mpeg", ".mpe", ".mpv", ".ogg", ".ogv", ".mp4",
+        ".m4p", ".m4v", ".avi", ".wmv", ".mov", ".mkv", ".m2ts", ".ts", ".webm"
     }.ToImmutableHashSet(StringComparer.OrdinalIgnoreCase);
 
     public static readonly ImmutableHashSet<string> AudioFileExtensions = new[]
@@ -32,7 +31,7 @@ public abstract class LocalFolderScanner
 
     public static readonly ImmutableHashSet<string> ImageFileExtensions = new[]
     {
-        "jpg", "jpeg", "png", "gif", "tbn"
+        "jpg", "jpeg", "png", "gif", "tbn", "webp"
     }.ToImmutableHashSet(StringComparer.OrdinalIgnoreCase);
 
     public static readonly ImmutableHashSet<string> ExtraFiles = new[]
@@ -96,7 +95,7 @@ public abstract class LocalFolderScanner
 
             string path = version.MediaFiles.Head().Path;
 
-            if (version.DateUpdated != _localFileSystem.GetLastWriteTime(path) || !version.Streams.Any())
+            if (version.DateUpdated != _localFileSystem.GetLastWriteTime(path) || version.Streams.Count == 0)
             {
                 _logger.LogDebug("Refreshing {Attribute} for {Path}", "Statistics", path);
                 Either<BaseError, bool> refreshResult =

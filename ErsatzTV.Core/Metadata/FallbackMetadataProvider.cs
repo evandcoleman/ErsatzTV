@@ -154,6 +154,25 @@ public partial class FallbackMetadataProvider : IFallbackMetadataProvider
         return GetSongMetadata(path, metadata);
     }
 
+    public Option<ImageMetadata> GetFallbackMetadata(Image image)
+    {
+        string path = image.MediaVersions.Head().MediaFiles.Head().Path;
+        string fileName = Path.GetFileNameWithoutExtension(path);
+        var metadata = new ImageMetadata
+        {
+            MetadataKind = MetadataKind.Fallback,
+            Title = fileName ?? path,
+            Image = image,
+            Genres = [],
+            Tags = [],
+            Studios = [],
+            Actors = [],
+            Guids = []
+        };
+
+        return GetImageMetadata(path, metadata);
+    }
+
     [GeneratedRegex(@"s(?:eason)?\s?(\d+)(?![e\d])", RegexOptions.IgnoreCase)]
     private static partial Regex SeasonNumber();
 
@@ -255,10 +274,11 @@ public partial class FallbackMetadataProvider : IFallbackMetadataProvider
             metadata.Title = match.Success
                 ? match.Groups[2].Value.Trim()
                 : Path.GetFileNameWithoutExtension(fileName);
-            metadata.Artists = new List<MusicVideoArtist>();
-            metadata.Genres = new List<Genre>();
-            metadata.Tags = new List<Tag>();
-            metadata.Studios = new List<Studio>();
+            metadata.Artists = [];
+            metadata.Genres = [];
+            metadata.Tags = [];
+            metadata.Studios = [];
+            metadata.Directors = [];
             metadata.DateUpdated = DateTime.UtcNow;
 
             return metadata;
@@ -296,6 +316,44 @@ public partial class FallbackMetadataProvider : IFallbackMetadataProvider
             metadata.Genres = new List<Genre>();
             metadata.Tags = tags;
             metadata.Studios = new List<Studio>();
+            metadata.DateUpdated = DateTime.UtcNow;
+            metadata.OriginalTitle = Path.GetRelativePath(libraryPath, path);
+
+            return metadata;
+        }
+        catch (Exception ex)
+        {
+            _client.Notify(ex);
+            return None;
+        }
+    }
+
+    private Option<ImageMetadata> GetImageMetadata(string path, ImageMetadata metadata)
+    {
+        try
+        {
+            string folder = Path.GetDirectoryName(path);
+            if (folder == null)
+            {
+                return None;
+            }
+
+            string libraryPath = metadata.Image.LibraryPath.Path;
+            string parent = Optional(Directory.GetParent(libraryPath)).Match(
+                di => di.FullName,
+                () => libraryPath);
+
+            string diff = Path.GetRelativePath(parent, folder);
+
+            var tags = diff.Split(Path.DirectorySeparatorChar)
+                .Map(t => new Tag { Name = t })
+                .ToList();
+
+            metadata.Artwork = [];
+            metadata.Actors = [];
+            metadata.Genres = [];
+            metadata.Tags = tags;
+            metadata.Studios = [];
             metadata.DateUpdated = DateTime.UtcNow;
             metadata.OriginalTitle = Path.GetRelativePath(libraryPath, path);
 
@@ -350,7 +408,7 @@ public partial class FallbackMetadataProvider : IFallbackMetadataProvider
     {
         try
         {
-            const string PATTERN = @"^(.*?)[\s.]+?[.\(](\d{4})[.\)].*$";
+            const string PATTERN = @"^(.*?)[\s.]*?[.\(](\d{4})[.\)].*$";
             Match match = Regex.Match(fileName, PATTERN);
             if (match.Success)
             {

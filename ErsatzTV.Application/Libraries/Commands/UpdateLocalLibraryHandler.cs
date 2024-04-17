@@ -1,4 +1,5 @@
 ﻿using System.Threading.Channels;
+using Dapper;
 using ErsatzTV.Application.MediaSources;
 using ErsatzTV.Core;
 using ErsatzTV.Core.Domain;
@@ -37,7 +38,7 @@ public class UpdateLocalLibraryHandler : LocalLibraryHandlerBase,
     {
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         Validation<BaseError, Parameters> validation = await Validate(dbContext, request);
-        return await LanguageExtensions.Apply(validation, parameters => UpdateLocalLibrary(dbContext, parameters));
+        return await validation.Apply(parameters => UpdateLocalLibrary(dbContext, parameters));
     }
 
     private async Task<LocalLibraryViewModel> UpdateLocalLibrary(TvContext dbContext, Parameters parameters)
@@ -54,16 +55,36 @@ public class UpdateLocalLibraryHandler : LocalLibraryHandlerBase,
 
         var toRemoveIds = toRemove.Map(lp => lp.Id).ToList();
 
-        List<int> itemsToRemove = await dbContext.MediaItems
-            .Filter(mi => toRemoveIds.Contains(mi.LibraryPathId))
-            .Map(mi => mi.Id)
-            .ToListAsync();
+        await dbContext.Connection.ExecuteAsync(
+            "DELETE FROM MediaItem WHERE LibraryPathId IN @Ids",
+            new { Ids = toRemoveIds });
 
-        existing.Paths.RemoveAll(toRemove.Contains);
+        // delete all library folders (children first)
+        IOrderedQueryable<LibraryFolder> orderedFolders = dbContext.LibraryFolders
+            .Filter(lf => toRemoveIds.Contains(lf.LibraryPathId))
+            .OrderByDescending(lp => lp.Path.Length);
+
+        foreach (LibraryFolder folder in orderedFolders)
+        {
+            await dbContext.Connection.ExecuteAsync(
+                "DELETE FROM LibraryFolder WHERE Id = @LibraryFolderId",
+                new { LibraryFolderId = folder.Id });
+        }
+
+        await dbContext.LibraryPaths
+            .Filter(lp => toRemoveIds.Contains(lp.Id))
+            .ExecuteDeleteAsync();
+
         existing.Paths.AddRange(toAdd);
 
         if (await dbContext.SaveChangesAsync() > 0)
         {
+            List<int> itemsToRemove = await dbContext.MediaItems
+                .AsNoTracking()
+                .Filter(mi => toRemoveIds.Contains(mi.LibraryPathId))
+                .Map(mi => mi.Id)
+                .ToListAsync();
+
             await _searchIndex.RemoveItems(itemsToRemove);
             _searchIndex.Commit();
         }

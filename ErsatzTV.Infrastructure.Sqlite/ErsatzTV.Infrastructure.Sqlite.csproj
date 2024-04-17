@@ -1,11 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net7.0</TargetFramework>
+        <TargetFramework>net8.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <AnalysisLevel>latest-Recommended</AnalysisLevel>
-        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     </PropertyGroup>
 
     <ItemGroup>
@@ -14,9 +12,9 @@
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="Dapper" Version="2.1.15" />
-      <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="7.0.13" />
-      <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="7.0.13" />
+      <PackageReference Include="Dapper" Version="2.1.35" />
+      <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.3" />
+      <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.3" />
     </ItemGroup>
 
 

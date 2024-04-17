@@ -1,7 +1,9 @@
-﻿using Bugsnag;
+﻿using System.Collections.Immutable;
+using Bugsnag;
 using ErsatzTV.Core;
 using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Errors;
+using ErsatzTV.Core.Extensions;
 using ErsatzTV.Core.Interfaces.FFmpeg;
 using ErsatzTV.Core.Interfaces.Images;
 using ErsatzTV.Core.Interfaces.Metadata;
@@ -18,6 +20,7 @@ public class OtherVideoFolderScanner : LocalFolderScanner, IOtherVideoFolderScan
 {
     private readonly IClient _client;
     private readonly ILibraryRepository _libraryRepository;
+    private readonly IMediaItemRepository _mediaItemRepository;
     private readonly ILocalFileSystem _localFileSystem;
     private readonly ILocalMetadataProvider _localMetadataProvider;
     private readonly ILocalSubtitlesProvider _localSubtitlesProvider;
@@ -56,6 +59,7 @@ public class OtherVideoFolderScanner : LocalFolderScanner, IOtherVideoFolderScan
         _mediator = mediator;
         _otherVideoRepository = otherVideoRepository;
         _libraryRepository = libraryRepository;
+        _mediaItemRepository = mediaItemRepository;
         _client = client;
         _logger = logger;
     }
@@ -77,8 +81,23 @@ public class OtherVideoFolderScanner : LocalFolderScanner, IOtherVideoFolderScan
             var allFolders = new System.Collections.Generic.HashSet<string>();
             var folderQueue = new Queue<string>();
 
+            ImmutableHashSet<string> allTrashedItems = await _mediaItemRepository.GetAllTrashedItems(libraryPath);
+
+            string normalizedLibraryPath = libraryPath.Path.TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar);
+            if (libraryPath.Path != normalizedLibraryPath)
+            {
+                _logger.LogDebug(
+                    "Normalizing library path from {Original} to {Normalized}",
+                    libraryPath.Path,
+                    normalizedLibraryPath);
+                await _libraryRepository.UpdatePath(libraryPath, normalizedLibraryPath);
+            }
+
             if (ShouldIncludeFolder(libraryPath.Path) && allFolders.Add(libraryPath.Path))
             {
+                _logger.LogDebug("Adding folder to scanner queue: {Folder}", libraryPath.Path);
                 folderQueue.Enqueue(libraryPath.Path);
             }
 
@@ -87,6 +106,7 @@ public class OtherVideoFolderScanner : LocalFolderScanner, IOtherVideoFolderScan
                          .Filter(allFolders.Add)
                          .OrderBy(identity))
             {
+                _logger.LogDebug("Adding folder to scanner queue: {Folder}", folder);
                 folderQueue.Enqueue(folder);
             }
 
@@ -108,6 +128,8 @@ public class OtherVideoFolderScanner : LocalFolderScanner, IOtherVideoFolderScan
                     cancellationToken);
 
                 string otherVideoFolder = folderQueue.Dequeue();
+                Option<int> maybeParentFolder = await _libraryRepository.GetParentFolderId(otherVideoFolder);
+
                 foldersCompleted++;
 
                 var filesForEtag = _localFileSystem.ListFiles(otherVideoFolder).ToList();
@@ -122,33 +144,47 @@ public class OtherVideoFolderScanner : LocalFolderScanner, IOtherVideoFolderScan
                              .Filter(allFolders.Add)
                              .OrderBy(identity))
                 {
+                    _logger.LogDebug("Adding folder to scanner queue: {Folder}", subdirectory);
                     folderQueue.Enqueue(subdirectory);
                 }
 
                 string etag = FolderEtag.Calculate(otherVideoFolder, _localFileSystem);
-                Option<LibraryFolder> knownFolder = libraryPath.LibraryFolders
-                    .Filter(f => f.Path == otherVideoFolder)
-                    .HeadOrNone();
-
-                // skip folder if etag matches
-                if (!allFiles.Any() || await knownFolder.Map(f => f.Etag ?? string.Empty).IfNoneAsync(string.Empty) ==
-                    etag)
-                {
-                    continue;
-                }
-
-                _logger.LogDebug(
-                    "UPDATE: Etag has changed for folder {Folder}",
+                LibraryFolder knownFolder = await _libraryRepository.GetOrAddFolder(
+                    libraryPath,
+                    maybeParentFolder,
                     otherVideoFolder);
+
+                if (knownFolder.Etag == etag)
+                {
+                    if (allFiles.Any(allTrashedItems.Contains))
+                    {
+                        _logger.LogDebug("Previously trashed items are now present in folder {Folder}", otherVideoFolder);
+                    }
+                    else
+                    {
+                        // etag matches and no trashed items are now present, continue to next folder
+                        continue;
+                    }
+                }
+                else
+                {
+                    _logger.LogDebug(
+                        "UPDATE: Etag has changed for folder {Folder}",
+                        otherVideoFolder);
+                }
 
                 var hasErrors = false;
 
                 foreach (string file in allFiles.OrderBy(identity))
                 {
+                    _logger.LogDebug("Processing other video file {File}", file);
+
                     Either<BaseError, MediaItemScanResult<OtherVideo>> maybeVideo = await _otherVideoRepository
-                        .GetOrAdd(libraryPath, file)
+                        .GetOrAdd(libraryPath, knownFolder, file)
                         .BindT(video => UpdateStatistics(video, ffmpegPath, ffprobePath))
+                        .BindT(video => UpdateLibraryFolderId(video, knownFolder))
                         .BindT(UpdateMetadata)
+                        .BindT(video => UpdateThumbnail(video, cancellationToken))
                         .BindT(UpdateSubtitles)
                         .BindT(FlagNormal);
 
@@ -167,7 +203,7 @@ public class OtherVideoFolderScanner : LocalFolderScanner, IOtherVideoFolderScan
                                     libraryPath.LibraryId,
                                     null,
                                     null,
-                                    new[] { result.Item.Id },
+                                    [result.Item.Id],
                                     Array.Empty<int>()),
                                 cancellationToken);
                         }
@@ -219,6 +255,20 @@ public class OtherVideoFolderScanner : LocalFolderScanner, IOtherVideoFolderScan
         {
             return new ScanCanceled();
         }
+    }
+
+    private async Task<Either<BaseError, MediaItemScanResult<OtherVideo>>> UpdateLibraryFolderId(
+        MediaItemScanResult<OtherVideo> video,
+        LibraryFolder libraryFolder)
+    {
+        MediaFile mediaFile = video.Item.GetHeadVersion().MediaFiles.Head();
+        if (mediaFile.LibraryFolderId != libraryFolder.Id)
+        {
+            await _libraryRepository.UpdateLibraryFolderId(mediaFile, libraryFolder.Id);
+            video.IsUpdated = true;
+        }
+
+        return video;
     }
 
     private async Task<Either<BaseError, MediaItemScanResult<OtherVideo>>> UpdateMetadata(
@@ -284,5 +334,38 @@ public class OtherVideoFolderScanner : LocalFolderScanner, IOtherVideoFolderScan
             _client.Notify(ex);
             return BaseError.New(ex.ToString());
         }
+    }
+
+    private async Task<Either<BaseError, MediaItemScanResult<OtherVideo>>> UpdateThumbnail(
+        MediaItemScanResult<OtherVideo> result,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            OtherVideo otherVideo = result.Item;
+
+            Option<string> maybeThumbnail = LocateThumbnail(otherVideo);
+            foreach (string thumbnailFile in maybeThumbnail)
+            {
+                OtherVideoMetadata metadata = otherVideo.OtherVideoMetadata.Head();
+                await RefreshArtwork(thumbnailFile, metadata, ArtworkKind.Thumbnail, None, None, cancellationToken);
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _client.Notify(ex);
+            return BaseError.New(ex.ToString());
+        }
+    }
+
+    private Option<string> LocateThumbnail(OtherVideo otherVideo)
+    {
+        string path = otherVideo.MediaVersions.Head().MediaFiles.Head().Path;
+        return ImageFileExtensions
+            .Map(ext => Path.ChangeExtension(path, ext))
+            .Filter(f => _localFileSystem.FileExists(f))
+            .HeadOrNone();
     }
 }

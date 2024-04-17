@@ -1,0 +1,47 @@
+﻿@implements IDisposable
+
+<MudDialog>
+    <DialogContent>
+        <MudContainer Class="mb-6">
+            <MudText>
+                Edit the image folder duration
+            </MudText>
+        </MudContainer>
+        <MudNumericField T="double?" Label="Duration" @bind-Value="@_imageDurationSeconds"
+                         Adornment="Adornment.End"
+                         AdornmentText="seconds"
+                         Min="0.01"
+                         Step="0.01"
+                         Immediate="true"/>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" ButtonType="ButtonType.Reset">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit">
+            Save Changes
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private readonly CancellationTokenSource _cts = new();
+
+    [Parameter]
+    public double? ImageFolderDuration { get; set; }
+
+    [CascadingParameter]
+    MudDialogInstance MudDialog { get; set; }
+
+    private double? _imageDurationSeconds;
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+
+    protected override void OnParametersSet() => _imageDurationSeconds = ImageFolderDuration;
+
+    private void Submit() => MudDialog.Close(DialogResult.Ok(_imageDurationSeconds));
+
+    private void Cancel() => MudDialog.Cancel();
+}

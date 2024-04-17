@@ -3,7 +3,14 @@ using ErsatzTV.Core.Domain;
 
 namespace ErsatzTV.Application.Playouts;
 
-public record CreatePlayout(
-    int ChannelId,
-    int ProgramScheduleId,
-    ProgramSchedulePlayoutType ProgramSchedulePlayoutType) : IRequest<Either<BaseError, CreatePlayoutResponse>>;
+public record CreatePlayout(int ChannelId, ProgramSchedulePlayoutType ProgramSchedulePlayoutType)
+    : IRequest<Either<BaseError, CreatePlayoutResponse>>;
+
+public record CreateFloodPlayout(int ChannelId, int ProgramScheduleId)
+    : CreatePlayout(ChannelId, ProgramSchedulePlayoutType.Flood);
+
+public record CreateBlockPlayout(int ChannelId)
+    : CreatePlayout(ChannelId, ProgramSchedulePlayoutType.Block);
+
+public record CreateExternalJsonPlayout(int ChannelId, string ExternalJsonFile)
+    : CreatePlayout(ChannelId, ProgramSchedulePlayoutType.ExternalJson);

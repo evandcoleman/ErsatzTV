@@ -10,7 +10,7 @@ namespace ErsatzTV.Application.FFmpegProfiles;
 
 public class
     GetSupportedHardwareAccelerationKindsHandler : IRequestHandler<GetSupportedHardwareAccelerationKinds,
-        List<HardwareAccelerationKind>>
+    List<HardwareAccelerationKind>>
 {
     private readonly IDbContextFactory<TvContext> _dbContextFactory;
     private readonly IHardwareCapabilitiesFactory _hardwareCapabilitiesFactory;
@@ -22,7 +22,7 @@ public class
         _dbContextFactory = dbContextFactory;
         _hardwareCapabilitiesFactory = hardwareCapabilitiesFactory;
     }
-    
+
     public async Task<List<HardwareAccelerationKind>> Handle(
         GetSupportedHardwareAccelerationKinds request,
         CancellationToken cancellationToken)

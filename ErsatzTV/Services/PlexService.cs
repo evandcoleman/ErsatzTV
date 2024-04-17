@@ -32,6 +32,7 @@ public class PlexService : BackgroundService
         await Task.Yield();
 
         await _systemStartup.WaitForDatabase(stoppingToken);
+        await _systemStartup.WaitForSearchIndex(stoppingToken);
         if (stoppingToken.IsCancellationRequested)
         {
             return;
@@ -63,9 +64,6 @@ public class PlexService : BackgroundService
                             break;
                         case SynchronizePlexMediaSources sourcesRequest:
                             requestTask = SynchronizeSources(sourcesRequest, stoppingToken);
-                            break;
-                        case SynchronizePlexLibraries synchronizePlexLibrariesRequest:
-                            requestTask = SynchronizeLibraries(synchronizePlexLibrariesRequest, stoppingToken);
                             break;
                         default:
                             throw new NotSupportedException($"Unsupported request type: {request.GetType().Name}");
@@ -109,7 +107,7 @@ public class PlexService : BackgroundService
         return result.Match(
             sources =>
             {
-                if (sources.Any())
+                if (sources.Count != 0)
                 {
                     _logger.LogInformation("Successfully synchronized plex media sources");
                 }
@@ -149,21 +147,5 @@ public class PlexService : BackgroundService
         {
             _logger.LogWarning("Unable to poll plex token: {Error}", error.Value);
         }
-    }
-
-    private async Task SynchronizeLibraries(SynchronizePlexLibraries request, CancellationToken cancellationToken)
-    {
-        using IServiceScope scope = _serviceScopeFactory.CreateScope();
-        IMediator mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-
-        Either<BaseError, Unit> result = await mediator.Send(request, cancellationToken);
-        result.BiIter(
-            _ => _logger.LogInformation(
-                "Successfully synchronized plex libraries for source {MediaSourceId}",
-                request.PlexMediaSourceId),
-            error => _logger.LogWarning(
-                "Unable to synchronize plex libraries for source {MediaSourceId}: {Error}",
-                request.PlexMediaSourceId,
-                error.Value));
     }
 }

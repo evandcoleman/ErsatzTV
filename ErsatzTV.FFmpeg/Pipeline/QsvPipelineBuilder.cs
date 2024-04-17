@@ -8,6 +8,7 @@ using ErsatzTV.FFmpeg.Filter.Qsv;
 using ErsatzTV.FFmpeg.Format;
 using ErsatzTV.FFmpeg.GlobalOption.HardwareAcceleration;
 using ErsatzTV.FFmpeg.InputOption;
+using ErsatzTV.FFmpeg.OutputFormat;
 using ErsatzTV.FFmpeg.OutputOption;
 using ErsatzTV.FFmpeg.State;
 using Microsoft.Extensions.Logging;
@@ -27,6 +28,7 @@ public class QsvPipelineBuilder : SoftwarePipelineBuilder
         Option<AudioInputFile> audioInputFile,
         Option<WatermarkInputFile> watermarkInputFile,
         Option<SubtitleInputFile> subtitleInputFile,
+        Option<ConcatInputFile> concatInputFile,
         string reportsFolder,
         string fontsFolder,
         ILogger logger) : base(
@@ -36,6 +38,7 @@ public class QsvPipelineBuilder : SoftwarePipelineBuilder
         audioInputFile,
         watermarkInputFile,
         subtitleInputFile,
+        concatInputFile,
         reportsFolder,
         fontsFolder,
         logger)
@@ -63,6 +66,12 @@ public class QsvPipelineBuilder : SoftwarePipelineBuilder
             desiredState.VideoFormat,
             desiredState.VideoProfile,
             desiredState.PixelFormat);
+
+        // use software encoding (rawvideo) when piping to parent hls segmenter
+        if (ffmpegState.OutputFormat is OutputFormatKind.Nut)
+        {
+            encodeCapability = FFmpegCapability.Software;
+        }
 
         pipelineSteps.Add(new QsvHardwareAccelerationOption(ffmpegState.VaapiDevice));
 
@@ -165,6 +174,8 @@ public class QsvPipelineBuilder : SoftwarePipelineBuilder
         // _logger.LogDebug("After scale: {PixelFormat}", currentState.PixelFormat);
         currentState = SetPad(videoInputFile, videoStream, desiredState, currentState);
         // _logger.LogDebug("After pad: {PixelFormat}", currentState.PixelFormat);
+        currentState = SetCrop(videoInputFile, desiredState, currentState);
+        SetStillImageLoop(videoInputFile, videoStream, desiredState, pipelineSteps);
 
         // need to download for any sort of overlay
         if (currentState.FrameDataLocation == FrameDataLocation.Hardware &&
@@ -204,7 +215,7 @@ public class QsvPipelineBuilder : SoftwarePipelineBuilder
                     (HardwareAccelerationMode.Qsv, VideoFormat.H264) => new EncoderH264Qsv(),
                     (HardwareAccelerationMode.Qsv, VideoFormat.Mpeg2Video) => new EncoderMpeg2Qsv(),
 
-                    (_, _) => GetSoftwareEncoder(currentState, desiredState)
+                    (_, _) => GetSoftwareEncoder(ffmpegState, currentState, desiredState)
                 };
 
             foreach (IEncoder encoder in maybeEncoder)
@@ -348,6 +359,8 @@ public class QsvPipelineBuilder : SoftwarePipelineBuilder
                 {
                     _logger.LogDebug("FrameDataLocation == FrameDataLocation.Hardware");
 
+                    formatForDownload = new PixelFormatNv12(formatForDownload.Name);
+
                     var hardwareDownload =
                         new HardwareDownloadFilter(currentState with { PixelFormat = Some(formatForDownload) });
                     currentState = hardwareDownload.NextState(currentState);
@@ -370,6 +383,18 @@ public class QsvPipelineBuilder : SoftwarePipelineBuilder
                     {
                         result.Insert(0, new QsvFormatFilter(new PixelFormatQsv(format.Name)));
                     }
+                }
+
+                pipelineSteps.Add(new PixelFormatOutputOption(format));
+            }
+
+            // be explicit with pixel format when feeding to concat
+            if (ffmpegState.OutputFormat is OutputFormatKind.Nut)
+            {
+                Option<IPipelineStep> maybePixelFormat = pipelineSteps.Find(s => s is PixelFormatOutputOption);
+                foreach (IPipelineStep pf in maybePixelFormat)
+                {
+                    pipelineSteps.Remove(pf);
                 }
 
                 pipelineSteps.Add(new PixelFormatOutputOption(format));
@@ -461,7 +486,7 @@ public class QsvPipelineBuilder : SoftwarePipelineBuilder
         FrameState currentState,
         FrameState desiredState,
         string fontsFolder,
-        ICollection<IPipelineFilterStep> subtitleOverlayFilterSteps)
+        List<IPipelineFilterStep> subtitleOverlayFilterSteps)
     {
         foreach (SubtitleInputFile subtitle in subtitleInputFile)
         {
@@ -527,9 +552,7 @@ public class QsvPipelineBuilder : SoftwarePipelineBuilder
     {
         if (desiredState.CroppedSize.IsNone && currentState.PaddedSize != desiredState.PaddedSize)
         {
-            IPipelineFilterStep padStep = new PadFilter(
-                currentState,
-                desiredState.PaddedSize);
+            var padStep = new PadFilter(currentState, desiredState.PaddedSize);
             currentState = padStep.NextState(currentState);
             videoInputFile.FilterSteps.Add(padStep);
         }
@@ -574,6 +597,8 @@ public class QsvPipelineBuilder : SoftwarePipelineBuilder
                         : Option<IPixelFormat>.None
                 },
                 desiredState.ScaledSize,
+                desiredState.PaddedSize,
+                desiredState.CroppedSize,
                 ffmpegState.QsvExtraHardwareFrames,
                 VideoStream.IsAnamorphicEdgeCase,
                 videoStream.SampleAspectRatio);

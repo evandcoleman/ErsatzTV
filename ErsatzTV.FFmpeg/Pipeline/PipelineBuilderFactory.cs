@@ -1,5 +1,4 @@
 using ErsatzTV.FFmpeg.Capabilities;
-using ErsatzTV.FFmpeg.Runtime;
 using Microsoft.Extensions.Logging;
 
 namespace ErsatzTV.FFmpeg.Pipeline;
@@ -8,14 +7,11 @@ public class PipelineBuilderFactory : IPipelineBuilderFactory
 {
     private readonly IHardwareCapabilitiesFactory _hardwareCapabilitiesFactory;
     private readonly ILogger<PipelineBuilderFactory> _logger;
-    private readonly IRuntimeInfo _runtimeInfo;
 
     public PipelineBuilderFactory(
-        IRuntimeInfo runtimeInfo,
         IHardwareCapabilitiesFactory hardwareCapabilitiesFactory,
         ILogger<PipelineBuilderFactory> logger)
     {
-        _runtimeInfo = runtimeInfo;
         _hardwareCapabilitiesFactory = hardwareCapabilitiesFactory;
         _logger = logger;
     }
@@ -26,6 +22,7 @@ public class PipelineBuilderFactory : IPipelineBuilderFactory
         Option<AudioInputFile> audioInputFile,
         Option<WatermarkInputFile> watermarkInputFile,
         Option<SubtitleInputFile> subtitleInputFile,
+        Option<ConcatInputFile> concatInputFile,
         Option<string> vaapiDriver,
         Option<string> vaapiDevice,
         string reportsFolder,
@@ -44,7 +41,6 @@ public class PipelineBuilderFactory : IPipelineBuilderFactory
         return hardwareAccelerationMode switch
         {
             HardwareAccelerationMode.Nvenc when capabilities is not NoHardwareCapabilities => new NvidiaPipelineBuilder(
-                _runtimeInfo,
                 ffmpegCapabilities,
                 capabilities,
                 hardwareAccelerationMode,
@@ -52,6 +48,7 @@ public class PipelineBuilderFactory : IPipelineBuilderFactory
                 audioInputFile,
                 watermarkInputFile,
                 subtitleInputFile,
+                concatInputFile,
                 reportsFolder,
                 fontsFolder,
                 _logger),
@@ -63,6 +60,7 @@ public class PipelineBuilderFactory : IPipelineBuilderFactory
                 audioInputFile,
                 watermarkInputFile,
                 subtitleInputFile,
+                concatInputFile,
                 reportsFolder,
                 fontsFolder,
                 _logger),
@@ -74,20 +72,23 @@ public class PipelineBuilderFactory : IPipelineBuilderFactory
                 audioInputFile,
                 watermarkInputFile,
                 subtitleInputFile,
+                concatInputFile,
                 reportsFolder,
                 fontsFolder,
                 _logger),
-            HardwareAccelerationMode.VideoToolbox when capabilities is not NoHardwareCapabilities => new VideoToolboxPipelineBuilder(
-                ffmpegCapabilities,
-                capabilities,
-                hardwareAccelerationMode,
-                videoInputFile,
-                audioInputFile,
-                watermarkInputFile,
-                subtitleInputFile,
-                reportsFolder,
-                fontsFolder,
-                _logger),
+            HardwareAccelerationMode.VideoToolbox when capabilities is not NoHardwareCapabilities => new
+                VideoToolboxPipelineBuilder(
+                    ffmpegCapabilities,
+                    capabilities,
+                    hardwareAccelerationMode,
+                    videoInputFile,
+                    audioInputFile,
+                    watermarkInputFile,
+                    subtitleInputFile,
+                    concatInputFile,
+                    reportsFolder,
+                    fontsFolder,
+                    _logger),
             HardwareAccelerationMode.Amf when capabilities is not NoHardwareCapabilities => new AmfPipelineBuilder(
                 ffmpegCapabilities,
                 capabilities,
@@ -96,6 +97,7 @@ public class PipelineBuilderFactory : IPipelineBuilderFactory
                 audioInputFile,
                 watermarkInputFile,
                 subtitleInputFile,
+                concatInputFile,
                 reportsFolder,
                 fontsFolder,
                 _logger),
@@ -106,6 +108,7 @@ public class PipelineBuilderFactory : IPipelineBuilderFactory
                 audioInputFile,
                 watermarkInputFile,
                 subtitleInputFile,
+                concatInputFile,
                 reportsFolder,
                 fontsFolder,
                 _logger)

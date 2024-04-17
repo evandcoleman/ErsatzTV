@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using System.Threading.Channels;
+﻿using System.Threading.Channels;
 using Bugsnag;
 using ErsatzTV.Application.Channels;
 using ErsatzTV.Application.Maintenance;
@@ -18,16 +17,17 @@ namespace ErsatzTV.Application.Streaming;
 
 public class StartFFmpegSessionHandler : IRequestHandler<StartFFmpegSession, Either<BaseError, Unit>>
 {
+    private readonly IClient _client;
     private readonly IConfigElementRepository _configElementRepository;
-    private readonly IHostApplicationLifetime _hostApplicationLifetime;
     private readonly IFFmpegSegmenterService _ffmpegSegmenterService;
     private readonly IHlsPlaylistFilter _hlsPlaylistFilter;
-    private readonly IServiceScopeFactory _serviceScopeFactory;
-    private readonly IMediator _mediator;
-    private readonly IClient _client;
+    private readonly IHostApplicationLifetime _hostApplicationLifetime;
     private readonly ILocalFileSystem _localFileSystem;
     private readonly ILogger<StartFFmpegSessionHandler> _logger;
+    private readonly IMediator _mediator;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ILogger<HlsSessionWorker> _sessionWorkerLogger;
+    private readonly ILogger<HlsSessionWorkerV2> _sessionWorkerV2Logger;
     private readonly ChannelWriter<IBackgroundServiceRequest> _workerChannel;
 
     public StartFFmpegSessionHandler(
@@ -38,9 +38,10 @@ public class StartFFmpegSessionHandler : IRequestHandler<StartFFmpegSession, Eit
         ILocalFileSystem localFileSystem,
         ILogger<StartFFmpegSessionHandler> logger,
         ILogger<HlsSessionWorker> sessionWorkerLogger,
+        ILogger<HlsSessionWorkerV2> sessionWorkerV2Logger,
         IFFmpegSegmenterService ffmpegSegmenterService,
         IConfigElementRepository configElementRepository,
-        IHostApplicationLifetime hostApplicationLifetime, 
+        IHostApplicationLifetime hostApplicationLifetime,
         ChannelWriter<IBackgroundServiceRequest> workerChannel)
     {
         _hlsPlaylistFilter = hlsPlaylistFilter;
@@ -50,6 +51,7 @@ public class StartFFmpegSessionHandler : IRequestHandler<StartFFmpegSession, Eit
         _localFileSystem = localFileSystem;
         _logger = logger;
         _sessionWorkerLogger = sessionWorkerLogger;
+        _sessionWorkerV2Logger = sessionWorkerV2Logger;
         _ffmpegSegmenterService = ffmpegSegmenterService;
         _configElementRepository = configElementRepository;
         _hostApplicationLifetime = hostApplicationLifetime;
@@ -73,95 +75,53 @@ public class StartFFmpegSessionHandler : IRequestHandler<StartFFmpegSession, Eit
         Option<int> targetFramerate = await _mediator.Send(
             new GetChannelFramerate(request.ChannelNumber),
             cancellationToken);
-        
-        var worker = new HlsSessionWorker(
-            _serviceScopeFactory,
-            _client,
-            _hlsPlaylistFilter,
-            _configElementRepository,
-            _localFileSystem,
-            _sessionWorkerLogger,
-            targetFramerate);
-        _ffmpegSegmenterService.SessionWorkers.AddOrUpdate(request.ChannelNumber, _ => worker, (_, _) => worker);
+
+        IHlsSessionWorker worker = GetSessionWorker(request, targetFramerate);
+
+        _ffmpegSegmenterService.AddOrUpdateWorker(request.ChannelNumber, worker);
 
         // fire and forget worker
         _ = worker.Run(request.ChannelNumber, idleTimeout, _hostApplicationLifetime.ApplicationStopping)
             .ContinueWith(
                 _ =>
                 {
-                    _ffmpegSegmenterService.SessionWorkers.TryRemove(
-                        request.ChannelNumber,
-                        out IHlsSessionWorker inactiveWorker);
-                    
+                    _ffmpegSegmenterService.RemoveWorker(request.ChannelNumber, out IHlsSessionWorker inactiveWorker);
+
                     inactiveWorker?.Dispose();
 
                     _workerChannel.TryWrite(new ReleaseMemory(false));
                 },
                 TaskScheduler.Default);
 
-        string playlistFileName = Path.Combine(
-            FileSystemLayout.TranscodeFolder,
-            request.ChannelNumber,
-            "live.m3u8");
-
         int initialSegmentCount = await _configElementRepository
             .GetValue<int>(ConfigElementKey.FFmpegInitialSegmentCount)
             .Map(maybeCount => maybeCount.Match(identity, () => 1));
 
-        await WaitForPlaylistSegments(playlistFileName, initialSegmentCount, worker, cancellationToken);
+        await worker.WaitForPlaylistSegments(initialSegmentCount, cancellationToken);
 
         return Unit.Default;
     }
 
-    private async Task WaitForPlaylistSegments(
-        string playlistFileName,
-        int initialSegmentCount,
-        IHlsSessionWorker worker,
-        CancellationToken cancellationToken)
-    {
-        var sw = Stopwatch.StartNew();
-        try
+    private IHlsSessionWorker GetSessionWorker(StartFFmpegSession request, Option<int> targetFramerate) =>
+        request.Mode switch
         {
-            DateTimeOffset start = DateTimeOffset.Now;
-            DateTimeOffset finish = start.AddSeconds(8);
-
-            _logger.LogDebug("Waiting for playlist to exist");
-            while (!File.Exists(playlistFileName))
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
-            }
-
-            _logger.LogDebug("Playlist exists");
-
-            var segmentCount = 0;
-            int lastSegmentCount = -1;
-            while (DateTimeOffset.Now < finish && segmentCount < initialSegmentCount)
-            {
-                if (segmentCount != lastSegmentCount)
-                {
-                    lastSegmentCount = segmentCount;
-                    _logger.LogDebug(
-                        "Segment count {SegmentCount} of {InitialSegmentCount}",
-                        segmentCount,
-                        initialSegmentCount);
-                }
-
-                await Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken);
-
-                DateTimeOffset now = DateTimeOffset.Now.AddSeconds(-30);
-                Option<TrimPlaylistResult> maybeResult = await worker.TrimPlaylist(now, cancellationToken);
-                foreach (TrimPlaylistResult result in maybeResult)
-                {
-                    segmentCount = result.SegmentCount;
-                }
-            }
-        }
-        finally
-        {
-            sw.Stop();
-            _logger.LogDebug("WaitForPlaylistSegments took {Duration}", sw.Elapsed);
-        }
-    }
+            "segmenter-v2" => new HlsSessionWorkerV2(
+                _serviceScopeFactory,
+                _configElementRepository,
+                _localFileSystem,
+                _sessionWorkerV2Logger,
+                targetFramerate,
+                request.Scheme,
+                request.Host),
+            _ => new HlsSessionWorker(
+                _serviceScopeFactory,
+                _client,
+                _hlsPlaylistFilter,
+                _configElementRepository,
+                _localFileSystem,
+                _sessionWorkerLogger,
+                targetFramerate)
+        };
 
     private Task<Validation<BaseError, Unit>> Validate(StartFFmpegSession request) =>
         SessionMustBeInactive(request)
@@ -169,12 +129,12 @@ public class StartFFmpegSessionHandler : IRequestHandler<StartFFmpegSession, Eit
 
     private Task<Validation<BaseError, Unit>> SessionMustBeInactive(StartFFmpegSession request)
     {
-        var result = Optional(_ffmpegSegmenterService.SessionWorkers.TryAdd(request.ChannelNumber, null))
+        var result = Optional(_ffmpegSegmenterService.TryAddWorker(request.ChannelNumber, null))
             .Where(success => success)
             .Map(_ => Unit.Default)
             .ToValidation<BaseError>(new ChannelSessionAlreadyActive());
 
-        if (result.IsFail && _ffmpegSegmenterService.SessionWorkers.TryGetValue(
+        if (result.IsFail && _ffmpegSegmenterService.TryGetWorker(
                 request.ChannelNumber,
                 out IHlsSessionWorker worker))
         {

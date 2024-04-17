@@ -2,8 +2,7 @@
 
 namespace ErsatzTV.Application.MediaCollections;
 
-public record AddItemsToCollection
-(
+public record AddItemsToCollection(
     int CollectionId,
     List<int> MovieIds,
     List<int> ShowIds,
@@ -12,4 +11,5 @@ public record AddItemsToCollection
     List<int> ArtistIds,
     List<int> MusicVideoIds,
     List<int> OtherVideoIds,
-    List<int> SongIds) : IRequest<Either<BaseError, Unit>>;
+    List<int> SongIds,
+    List<int> ImageIds) : IRequest<Either<BaseError, Unit>>;

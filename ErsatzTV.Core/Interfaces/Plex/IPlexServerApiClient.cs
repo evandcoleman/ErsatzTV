@@ -52,13 +52,13 @@ public interface IPlexServerApiClient
         PlexServerAuthToken token);
 
     Task<Either<BaseError, Tuple<MovieMetadata, MediaVersion>>> GetMovieMetadataAndStatistics(
-        PlexLibrary library,
+        int plexMediaSourceId,
         string key,
         PlexConnection connection,
         PlexServerAuthToken token);
 
     Task<Either<BaseError, Tuple<EpisodeMetadata, MediaVersion>>> GetEpisodeMetadataAndStatistics(
-        PlexLibrary library,
+        int plexMediaSourceId,
         string key,
         PlexConnection connection,
         PlexServerAuthToken token);
@@ -67,4 +67,15 @@ public interface IPlexServerApiClient
         PlexLibrary library,
         PlexConnection connection,
         PlexServerAuthToken token);
+
+    IAsyncEnumerable<PlexCollection> GetAllCollections(
+        PlexConnection connection,
+        PlexServerAuthToken token,
+        CancellationToken cancellationToken);
+
+    IAsyncEnumerable<MediaItem> GetCollectionItems(
+        PlexConnection connection,
+        PlexServerAuthToken token,
+        string key,
+        CancellationToken cancellationToken);
 }

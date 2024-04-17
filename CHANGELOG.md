@@ -5,6 +5,189 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 ### Added
+- Add `Active Date Range` to block playout template editor to allow limiting templates to a specific date range
+  - This is year-agnostic, meaning the Month/Day range will apply to every year
+  - This also supports wrapping the end of the year (e.g., start 12/1 and end 1/15)
+- Add new `Deco` system for "decorating" channels with non-primary content
+  - Decos currently contain
+    - Watermarks
+    - Dead Air Fallback (i.e. fallback filler)
+  - Similar to blocks, decos have deco groups for organization
+  - Similar to blocks, decos have deco templates for filling a "day" with decos
+  - In the playout template editor, playout template items can have *both* a block template and a deco template
+    - This allows watermarks and dead air fallback to change at different times than primary content
+  - Block playouts can also have a default deco
+    - This will apply whenever a deco template is missing, or when a deco template item cannot be found for the current time
+    - Effectively, this sets a default watermark and dead air fallback for the entire playout
+- Add `XMLTV Days To Build` setting, which is distinct from the existing `Playout Days To Build` setting
+  - The value for `XMLTV Days To Build` cannot be larger than `Playout Days To Build`
+  - This allows, for example, a week of playout data while optimizing XMLTV data to only a day or two
+- Add health check to detect config folder issue on MacOS
+  - ETV versions through v0.8.4-beta (using dotnet 7) stored config data in `$HOME/.local/share/ersatztv`
+  - ETV versions starting with v0.8.5-beta (using dotnet 8) store config data in `$HOME/Library/Application Support/ersatztv`
+  - If a dotnet 8 version of ETV has NOT been launched on MacOS, it will automatically migrate the config folder on startup
+  - If a dotnet 8 version of ETV *has* been launched on MacOS, a failing health check will display with instructions on how to resolve the config issue to restore data 
+
+### Fixed
+- Fix some cases of 404s from Plex when files were replaced and scanning the library from ETV didn't help
+- Fix more wildcard search phrase queries (when wildcards are used in quotes, like `title:"law & order*"`)
+- Fix bug where channels would unnecessarily wait on each other
+  - e.g. in-progress streams would delay responding with a playlist when new streams were starting
+- Update Plex show title in ETV when changed in Plex
+- Reindex seasons and episodes when show is updated from media server
+  - This is needed to keep `show_*` tags accurate in the search index (e.g., `show_title`, `show_studio`)
+- Fix external subtitle detection to support forced/sdh subtitles with language tag before and after forced/sdh tag:
+  - `Something.forced.en.srt`
+  - `Something.sdh.en.srt`
+  - `Something.en.forced.srt`
+  - `Something.en.sdh.srt`
+
+### Changed
+- Use ffmpeg 7 in all docker images 
+- Show health checks at top of home page; scroll release notes if needed
+
+## [0.8.6-beta] - 2024-04-03
+### Added
+- Add `show_studio` and `show_content_rating` to search index for seasons and episodes
+- Add two new global subtitle settings:
+  - `Use embedded subtitles`
+    - Default value: `true`
+    - When disabled, embedded subtitles will not be considered for extraction (text subtitles), or playback (all embedded subtitles)
+  - `Extract and use embedded (text) subtitles`
+    - Default value: `false`
+    - When enabled, embedded text subtitles will be periodically extracted, and considered for playback
+- Add `sub_language` and `sub_language_tag` fields to search index
+- Add `/iptv` request logging in its own log category at debug level
+- Add channel guide (XMLTV) template system
+  - Templates should be copied from `_channel.sbntxt`, `_movie.sbntxt`, `_episode.sbntxt`, `_musicVideo.sbntxt`, `_song.sbntxt`, or `_otherVideo.sbntxt` which are located in the config subfolder `templates/channel-guide`
+    - Copy the file, remove the leading underscore from the name, and only make edits to the copied file
+  - The default templates will be extracted and overwritten every time ErsatzTV is started
+  - The templates use [scribian](https://github.com/scriban/scriban/tree/master/doc) template syntax
+  - The templates contain comments describing which fields are available for use in the templates
+- Add *experimental* and *incomplete* `Images` library kind
+  - Image libraries have fallback metadata added like Other Video libraries (every folder is a tag)
+  - Image library items currently default to a duration of 15 seconds
+    - The `Media` > `Images` page can be used to configure image durations at a folder level
+    - Child folders with unset durations will inherit the closest ancestor's duration
+- Add *experimental* new streaming mode `HLS Segmenter V2`
+  - In my initial testing, this streaming mode produces significantly fewer playback warnings/errors
+  - If it tests well for others, it *may* replace the current `HLS Segmenter` in a future release
+- Add setting to change XMLTV data from `Local` time zone to `UTC`
+  - This is needed because some clients (incorrectly) ignore time zone specifier and require UTC times
+- Support `.ogv` video files in local libraries
+
+### Fixed
+- Fix antiforgery error caused by reusing existing browser tabs across docker container restarts
+  - Data protection keys will now be persisted under ErsatzTV's config folder instead of being recreated at startup
+- Fix bug updating/replacing Jellyfin movies
+  - A deep scan can be used to fix all movies, otherwise any future updates made to JF movies will correctly sync to ETV
+- Automatically generate JWT tokens to allow channel previews of protected streams
+- Fix bug applying music video fallback metadata
+- Fix playback of media items with no audio streams
+- Fix timestamp continuity in `HLS Segmenter` sessions
+  - This should make *some* clients happier 
+- Fix `Other Video`, `Song` and `Image` fallback metadata tags to always include parent folder (folder added to library) 
+- Allow playback of items with any positive duration, including less than one second
+- Fix VAAPI transcoding of OTA content containing A53 CC data
+- Fix AV1 software decoder priority (`libdav1d`, `libaom-av1`, `av1`)
+- Fix some stream failures caused by loudnorm filter
+- Fix multi-collection editor improperly disabling collections/smart collections that haven't already been added to the multi-collection
+- Fix path replacement logic when media server paths use inconsistent casing (e.g. `\\SERVERNAME` AND `\\ServerName`)
+- Fix *many* search queries, including actors with the name `Will`
+- Fix sqlite `database is locked` error that would crash ETV on startup after search index corruption
+- Fix bug where replacing files in Plex would be missed by subsequent ETV library scans
+  - This fix will require a one-time re-scan of each Plex library in full
+  - After the initial full scan, incremental scans will behave as normal
+- Fix edge case where some local episodes, music videos, other videos, songs, images would not automatically be restored from trash
+- Fix `MPEG-TS` playback when JWT tokens are enabled for streaming endpoints
+
+### Changed
+- Log search index updates under scanner category at debug level, to indicate a potential cause for the UI being out of date
+- Batch search index updates to keep pace with library scans
+  - Previously, search index updates would slowly process over minutes/hours after library scans completed
+  - Search index updates should now complete at the same time as library scans
+- Do not unnecessarily update the search index during media server library scans
+- Use different library for reading song metadata that supports multiple tag entries
+- Update `/iptv` routing to make UI completely inaccessible from that path prefix
+- Use CUDA 11 instead of CUDA 12 in NVIDIA docker image to significantly lower required driver version
+- Allow block durations with 5-minute increments (e.g., 5 min, 10 min, 15 min, etc.)
+
+## [0.8.5-beta] - 2024-01-30
+### Added
+- Respect browser's `Accept-Language` header for date time display
+- Add new schedule item setting `Fill With Group Mode`
+  - This setting is only available when a `Collection`, `Multi-Collection` or `Smart Collection` is scheduled with `Duration` or `Multiple` playout modes
+  - Use this setting when you want to schedule a collection containing groups (show or artists), with only videos from a single group (show or artist) being used in each rotation
+  - The options are `None`, `Ordered Groups` and `Shuffled Groups`:
+    - `None`: no change to scheduling behavior - all groups (shows and artists) will be shuffled/ordered together
+    - `Ordered Groups`: each time this item is scheduled, the entire `Duration` or `Multiple` will be filled with a single group, and the groups will rotate in a fixed order
+    - `Shuffled Groups`: each time this item is scheduled, the entire `Duration` or `Multiple` will be filled with a single group, and the groups will rotate in a shuffled order
+- Add new playout type `External Json`
+  - Use this playout type when you want to manage the channel schedule using DizqueTV
+  - You must point ErsatzTV to the channel number json file from DizqueTV, e.g. `channels/1.json`
+  - For playback, ErsatzTV will first check for the appropriate media file file locally
+    - If found, ErsatzTV will run ffprobe to get statistics immediately before streaming from disk
+  - When local files are unavailable, ErsatzTV must be logged into the same Plex server as DizqueTV
+    - ErsatzTV will ask Plex for statistics immediately before streaming from Plex
+- Add new *experimental* playout type `Block`
+  - **This playout type is under active development and updates may reset or delete related playout data**
+  - Many planned features are missing, incomplete, or result in errors. This is expected.
+  - Block playouts consist of:
+    - `Blocks` - ordered list of items to play within the specified duration
+    - `Templates` - a generic "day" that consists of blocks scheduled at specific times
+    - `Playout Templates` - templates to schedule using the specified criteria. Only one template will be selected each day
+  - Much more to come on this feature as development continues
+- Show chapter markers in movie and episode media info
+- Add two new API endpoints for interacting with transcoding sessions (MPEG-TS and HLS Segmenter):
+  - GET `/api/sessions`
+    - Show brief info about all active sessions
+  - DELETE `/api/session/{channel-number}`
+    - Stop the session for the given channel number 
+- Add channel preview (web-based video player)
+  - Channels MUST use `H264` video format and `AAC` audio format
+  - Channels MUST use `MPEG-TS` or `HLS Segmenter` streaming modes
+    - Since `MPEG-TS` uses `HLS Segmenter` under the hood, the preview player will use `HLS Segmenter`, so it's not 100% equivalent, but it should be representative 
+- Add button to stop transcoding session for each channel that has an active session
+- Add more log levels to `Settings` page, allowing more specific debug logging as needed
+    - Default Minimum Log Level (applies when no other categories/level overrides match)
+    - Scanning Minimum Log Level
+    - Scheduling Minimum Log Level
+    - Streaming Minimum Log Level
+
+### Fixed
+- Fix error loading path replacements when using MySql
+- Fix tray icon shortcut to open logs folder on Windows
+- Unlock playout when playout build fails
+- Ignore errors deleting old HLS segments; this should improve stream reliability
+- Update show year when changed within Plex
+- Fix crop scale behavior with NVIDIA, QSV acceleration
+- Fix bug that corrupted uploaded images (watermarks, channel logos)
+  - Re-uploading images should fix them 
+- Recreate XMLTV channel list (including logos) when channels are edited in ErsatzTV
+  - This bug caused the ErsatzTV logo to be used instead of channel logos in some cases 
+- Update drop down search results in main search bar when items are created/edited/removed 
+- Fix green line at bottom of video when NVIDIA accel is used with intermittent watermark
+- Fix error starting streaming session when subtitles are still being extracted for the current item
+
+### Changed
+- Upgrade from .NET 7 to .NET 8
+- In schedule items, disambiguate seasons from shows with the same title by including show year
+  - Old format: `Show Title (Season Number)`
+  - New format: `Show Title (Show Year) - Season Number`
+- Remove FFmpeg Profile `Normalize Loudness` option `dynaudnorm` as it often caused streams to fail to start
+- Disable loudness normalization by default in new FFmpeg Profiles
+- Use AAC audio format by default in new FFmpeg Profiles
+
+## [0.8.4-beta] - 2023-12-02
+### Fixed
+- Fix playout builder crash with improperly configured pad filler preset
+- Properly validate filler preset mode pad to require `filler pad to nearest minute` value
+- Fix bug where previously-synchronized collection tags would disappear
+  - This bug affected Jellyfin, Emby and Plex collections
+- Fix detection of AMF hardware acceleration on Windows
+
+## [0.8.3-beta] - 2023-11-22
+### Added
 - Add `Scaling Behavior` option to FFmpeg Profile
   - `Scale and Pad`: the default behavior and will maintain aspect ratio of all content
   - `Stretch`: a new mode that will NOT maintain aspect ratio when normalizing source content to the desired resolution
@@ -17,6 +200,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Add QSV Capabilities to Troubleshooting page
 - Add `language_tag` and `seconds` fields to search index
 - Allow synchronizing Plex `TV Show` libraries that use `Personal Media Shows` agent
+- Include Noto CJK Fonts in docker images to support those characters in generated subtitles like songs and music video credits
+- Support show fallback metadata with folder names like `Show.Name(1992)`
 
 ### Fixed
 - Fix playout bug that caused some schedule items with fixed start times to be pushed to the next day
@@ -33,6 +218,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - This behavior caused extremely slow QSV stream starts
 - Fix displaying multiple languages in UI for movies, artists, shows
 - Fix MySQL queries that could fail during media server library scans
+- Fix scanning Jellyfin libraries when library options and/or path infos are not returned from Jellyfin API
+- Fix error indexing music videos in `File Not Found` state
+- Fix bug scheduling duration filler when filler collection contains item with zero duration
+- Fix bug displaying television seasons for shows that have no year metadata
 
 ### Changed
 - Upgrade ffmpeg to 6.1, which is now *required* for all installs
@@ -48,6 +237,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Test QSV acceleration if configured, and fallback to software mode if test fails
 - Detect QSV capabilities on Linux (supported decoders, encoders)
 - Use hardware acceleration for error messages/offline messages
+- Try to parse season number from season folder when Jellyfin does not provide season number
+  - This *may* fix issues where Jellyfin libraries show all season numbers as 0 (specials)
+- Rework Plex collection scanning
+    - Automatic/periodic scans will check collections one time after all libraries have been scanned
+    - There is a table in the `Media` > `Libraries` page with a button to manually re-scan Plex collections as needed
+    - Plex smart collections will now be synchronized as tags, similar to other Plex collections
 
 ## [0.8.2-beta] - 2023-09-14
 ### Added
@@ -1785,7 +1980,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Initial release to facilitate testing outside of Docker.
 
 
-[Unreleased]: https://github.com/ErsatzTV/ErsatzTV/compare/v0.8.2-beta...HEAD
+[Unreleased]: https://github.com/ErsatzTV/ErsatzTV/compare/v0.8.6-beta...HEAD
+[0.8.6-beta]: https://github.com/ErsatzTV/ErsatzTV/compare/v0.8.5-beta...v0.8.6-beta
+[0.8.5-beta]: https://github.com/ErsatzTV/ErsatzTV/compare/v0.8.4-beta...v0.8.5-beta
+[0.8.4-beta]: https://github.com/ErsatzTV/ErsatzTV/compare/v0.8.3-beta...v0.8.4-beta
+[0.8.3-beta]: https://github.com/ErsatzTV/ErsatzTV/compare/v0.8.2-beta...v0.8.3-beta
 [0.8.2-beta]: https://github.com/ErsatzTV/ErsatzTV/compare/v0.8.1-beta...v0.8.2-beta
 [0.8.1-beta]: https://github.com/ErsatzTV/ErsatzTV/compare/v0.8.0-beta...v0.8.1-beta
 [0.8.0-beta]: https://github.com/ErsatzTV/ErsatzTV/compare/v0.7.9-beta...v0.8.0-beta

@@ -72,7 +72,7 @@ public class MediaItemRepository : IMediaItemRepository
         List<int> ids = await dbContext.Connection.QueryAsync<int>(
                 @"SELECT M.Id
                 FROM MediaItem M
-                INNER JOIN MediaVersion MV on M.Id = COALESCE(MovieId, MusicVideoId, OtherVideoId, SongId, EpisodeId)
+                INNER JOIN MediaVersion MV on M.Id = COALESCE(MovieId, MusicVideoId, OtherVideoId, SongId, ImageId, EpisodeId)
                 INNER JOIN MediaFile MF on MV.Id = MF.MediaVersionId
                 WHERE M.LibraryPathId = @LibraryPathId AND MF.Path = @Path",
                 new { LibraryPathId = libraryPath.Id, Path = path })
@@ -91,7 +91,7 @@ public class MediaItemRepository : IMediaItemRepository
         return await dbContext.Connection.QueryAsync<string>(
                 @"SELECT MF.Path
                 FROM MediaItem M
-                INNER JOIN MediaVersion MV on M.Id = COALESCE(MovieId, MusicVideoId, OtherVideoId, SongId, EpisodeId)
+                INNER JOIN MediaVersion MV on M.Id = COALESCE(MovieId, MusicVideoId, OtherVideoId, SongId, EpisodeId, ImageId)
                 INNER JOIN MediaFile MF on MV.Id = MF.MediaVersionId
                 WHERE M.State IN (1,2) AND M.LibraryPathId = @LibraryPathId",
                 new { LibraryPathId = libraryPath.Id })
@@ -182,7 +182,7 @@ public class MediaItemRepository : IMediaItemRepository
                     };
 
                     string libraryName = mediaItem.LibraryPath.Library.Name;
-                    logger.LogWarning(
+                    logger.LogDebug(
                         "Unable to add media item to {IncomingLibraryType} '{IncomingLibraryName}'; {LibraryType} '{LibraryName}' already contains path {Path}",
                         incomingLibraryType,
                         incomingLibrary.Name,

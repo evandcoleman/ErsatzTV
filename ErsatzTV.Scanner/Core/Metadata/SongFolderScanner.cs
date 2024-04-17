@@ -1,4 +1,5 @@
-﻿using Bugsnag;
+﻿using System.Collections.Immutable;
+using Bugsnag;
 using ErsatzTV.Core;
 using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Errors;
@@ -19,6 +20,7 @@ public class SongFolderScanner : LocalFolderScanner, ISongFolderScanner
 {
     private readonly IClient _client;
     private readonly ILibraryRepository _libraryRepository;
+    private readonly IMediaItemRepository _mediaItemRepository;
     private readonly ILocalFileSystem _localFileSystem;
     private readonly ILocalMetadataProvider _localMetadataProvider;
     private readonly ILogger<SongFolderScanner> _logger;
@@ -54,6 +56,7 @@ public class SongFolderScanner : LocalFolderScanner, ISongFolderScanner
         _mediator = mediator;
         _songRepository = songRepository;
         _libraryRepository = libraryRepository;
+        _mediaItemRepository = mediaItemRepository;
         _client = client;
         _logger = logger;
     }
@@ -73,6 +76,16 @@ public class SongFolderScanner : LocalFolderScanner, ISongFolderScanner
             var foldersCompleted = 0;
 
             var folderQueue = new Queue<string>();
+
+            string normalizedLibraryPath = libraryPath.Path.TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar);
+            if (libraryPath.Path != normalizedLibraryPath)
+            {
+                await _libraryRepository.UpdatePath(libraryPath, normalizedLibraryPath);
+            }
+
+            ImmutableHashSet<string> allTrashedItems = await _mediaItemRepository.GetAllTrashedItems(libraryPath);
 
             if (ShouldIncludeFolder(libraryPath.Path))
             {
@@ -104,6 +117,8 @@ public class SongFolderScanner : LocalFolderScanner, ISongFolderScanner
                     cancellationToken);
 
                 string songFolder = folderQueue.Dequeue();
+                Option<int> maybeParentFolder = await _libraryRepository.GetParentFolderId(songFolder);
+
                 foldersCompleted++;
 
                 var filesForEtag = _localFileSystem.ListFiles(songFolder).ToList();
@@ -121,15 +136,28 @@ public class SongFolderScanner : LocalFolderScanner, ISongFolderScanner
                 }
 
                 string etag = FolderEtag.Calculate(songFolder, _localFileSystem);
-                Option<LibraryFolder> knownFolder = libraryPath.LibraryFolders
-                    .Filter(f => f.Path == songFolder)
-                    .HeadOrNone();
-
-                // skip folder if etag matches
-                if (!allFiles.Any() || await knownFolder.Map(f => f.Etag ?? string.Empty).IfNoneAsync(string.Empty) ==
-                    etag)
+                LibraryFolder knownFolder = await _libraryRepository.GetOrAddFolder(
+                    libraryPath,
+                    maybeParentFolder,
+                    songFolder);
+                
+                if (knownFolder.Etag == etag)
                 {
-                    continue;
+                    if (allFiles.Any(allTrashedItems.Contains))
+                    {
+                        _logger.LogDebug("Previously trashed items are now present in folder {Folder}", songFolder);
+                    }
+                    else
+                    {
+                        // etag matches and no trashed items are now present, continue to next folder
+                        continue;
+                    }
+                }
+                else
+                {
+                    _logger.LogDebug(
+                        "UPDATE: Etag has changed for folder {Folder}",
+                        songFolder);
                 }
 
                 _logger.LogDebug(
@@ -141,10 +169,11 @@ public class SongFolderScanner : LocalFolderScanner, ISongFolderScanner
                 foreach (string file in allFiles.OrderBy(identity))
                 {
                     Either<BaseError, MediaItemScanResult<Song>> maybeSong = await _songRepository
-                        .GetOrAdd(libraryPath, file)
+                        .GetOrAdd(libraryPath, knownFolder, file)
                         .BindT(video => UpdateStatistics(video, ffmpegPath, ffprobePath))
-                        .BindT(video => UpdateMetadata(video, ffprobePath))
-                        .BindT(video => UpdateThumbnail(video, ffmpegPath, cancellationToken))
+                        .BindT(video => UpdateLibraryFolderId(video, knownFolder))
+                        .BindT(UpdateMetadata)
+                        .BindT(video => UpdateThumbnail(video, knownFolder, ffmpegPath, cancellationToken))
                         .BindT(FlagNormal);
 
                     foreach (BaseError error in maybeSong.LeftToSeq())
@@ -216,9 +245,21 @@ public class SongFolderScanner : LocalFolderScanner, ISongFolderScanner
         }
     }
 
-    private async Task<Either<BaseError, MediaItemScanResult<Song>>> UpdateMetadata(
+    private async Task<Either<BaseError, MediaItemScanResult<Song>>> UpdateLibraryFolderId(
         MediaItemScanResult<Song> result,
-        string ffprobePath)
+        LibraryFolder libraryFolder)
+    {
+        MediaFile mediaFile = result.Item.GetHeadVersion().MediaFiles.Head();
+        if (mediaFile.LibraryFolderId != libraryFolder.Id)
+        {
+            await _libraryRepository.UpdateLibraryFolderId(mediaFile, libraryFolder.Id);
+            result.IsUpdated = true;
+        }
+
+        return result;
+    }
+
+    private async Task<Either<BaseError, MediaItemScanResult<Song>>> UpdateMetadata(MediaItemScanResult<Song> result)
     {
         try
         {
@@ -235,7 +276,7 @@ public class SongFolderScanner : LocalFolderScanner, ISongFolderScanner
                 song.SongMetadata ??= new List<SongMetadata>();
 
                 _logger.LogDebug("Refreshing {Attribute} for {Path}", "Metadata", path);
-                if (await _localMetadataProvider.RefreshTagMetadata(song, ffprobePath))
+                if (await _localMetadataProvider.RefreshTagMetadata(song))
                 {
                     result.IsUpdated = true;
                 }
@@ -252,6 +293,7 @@ public class SongFolderScanner : LocalFolderScanner, ISongFolderScanner
 
     private async Task<Either<BaseError, MediaItemScanResult<Song>>> UpdateThumbnail(
         MediaItemScanResult<Song> result,
+        LibraryFolder knownFolder,
         string ffmpegPath,
         CancellationToken cancellationToken)
     {
@@ -262,7 +304,7 @@ public class SongFolderScanner : LocalFolderScanner, ISongFolderScanner
             {
                 LibraryPath libraryPath = result.Item.LibraryPath;
                 string path = result.Item.GetHeadVersion().MediaFiles.Head().Path;
-                foreach (MediaItemScanResult<Song> s in (await _songRepository.GetOrAdd(libraryPath, path))
+                foreach (MediaItemScanResult<Song> s in (await _songRepository.GetOrAdd(libraryPath, knownFolder, path))
                          .RightToSeq())
                 {
                     result.Item = s.Item;

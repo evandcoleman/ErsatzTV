@@ -1,4 +1,7 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Channels;
 using Bugsnag.AspNet.Core;
@@ -25,11 +28,13 @@ using ErsatzTV.Core.Interfaces.Repositories.Caching;
 using ErsatzTV.Core.Interfaces.Scheduling;
 using ErsatzTV.Core.Interfaces.Scripting;
 using ErsatzTV.Core.Interfaces.Search;
+using ErsatzTV.Core.Interfaces.Streaming;
 using ErsatzTV.Core.Interfaces.Trakt;
 using ErsatzTV.Core.Jellyfin;
 using ErsatzTV.Core.Metadata;
 using ErsatzTV.Core.Plex;
 using ErsatzTV.Core.Scheduling;
+using ErsatzTV.Core.Scheduling.BlockScheduling;
 using ErsatzTV.Core.Trakt;
 using ErsatzTV.FFmpeg.Capabilities;
 using ErsatzTV.FFmpeg.Pipeline;
@@ -47,12 +52,14 @@ using ErsatzTV.Infrastructure.Health.Checks;
 using ErsatzTV.Infrastructure.Images;
 using ErsatzTV.Infrastructure.Jellyfin;
 using ErsatzTV.Infrastructure.Locking;
+using ErsatzTV.Infrastructure.Metadata;
 using ErsatzTV.Infrastructure.Plex;
 using ErsatzTV.Infrastructure.Runtime;
 using ErsatzTV.Infrastructure.Scheduling;
 using ErsatzTV.Infrastructure.Scripting;
 using ErsatzTV.Infrastructure.Search;
 using ErsatzTV.Infrastructure.Sqlite.Data;
+using ErsatzTV.Infrastructure.Streaming;
 using ErsatzTV.Infrastructure.Trakt;
 using ErsatzTV.Serialization;
 using ErsatzTV.Services;
@@ -65,6 +72,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
@@ -78,6 +86,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using Refit;
 using Serilog;
+using Serilog.Events;
 
 namespace ErsatzTV;
 
@@ -93,6 +102,7 @@ public class Startup
 
     private IWebHostEnvironment CurrentEnvironment { get; }
 
+    [SuppressMessage("Performance", "CA1861:Avoid constant arrays as arguments")]
     public void ConfigureServices(IServiceCollection services)
     {
         BugsnagConfiguration bugsnagConfig = Configuration.GetSection("Bugsnag").Get<BugsnagConfiguration>();
@@ -125,6 +135,8 @@ public class Startup
                     configuration.ReleaseStage = bugsnagConfig.Enable ? "public" : "private";
 #endif
             });
+
+        services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(FileSystemLayout.DataProtectionFolder));
 
         OidcHelper.Init(Configuration);
         JwtHelper.Init(Configuration);
@@ -256,6 +268,8 @@ public class Startup
                         .AllowAnyHeader();
                 }));
 
+        services.AddLocalization();
+
         services.AddControllers(
                 options =>
                 {
@@ -278,12 +292,6 @@ public class Startup
 
         services.AddFluentValidationAutoValidation();
         services.AddValidatorsFromAssemblyContaining<Startup>();
-
-        string v2 = Environment.GetEnvironmentVariable("ETV_UI_V2");
-        if (!CurrentEnvironment.IsDevelopment() && !string.IsNullOrWhiteSpace(v2))
-        {
-            services.AddSpaStaticFiles(options => options.RootPath = "wwwroot/v2");
-        }
 
         services.AddMemoryCache();
 
@@ -320,49 +328,28 @@ public class Startup
             "https://github.com/ErsatzTV/ErsatzTV",
             "https://discord.gg/hHaJm3yGy6");
 
-        if (!Directory.Exists(FileSystemLayout.AppDataFolder))
-        {
-            Directory.CreateDirectory(FileSystemLayout.AppDataFolder);
-        }
+        CopyMacOsConfigFolderIfNeeded();
+        
+        List<string> directoriesToCreate =
+        [
+            FileSystemLayout.AppDataFolder,
+            FileSystemLayout.TranscodeFolder,
+            FileSystemLayout.TempFilePoolFolder,
+            FileSystemLayout.FontsCacheFolder,
+            FileSystemLayout.TemplatesFolder,
+            FileSystemLayout.MusicVideoCreditsTemplatesFolder,
+            FileSystemLayout.ChannelGuideTemplatesFolder,
+            FileSystemLayout.ScriptsFolder,
+            FileSystemLayout.MultiEpisodeShuffleTemplatesFolder,
+            FileSystemLayout.AudioStreamSelectorScriptsFolder
+        ];
 
-        if (!Directory.Exists(FileSystemLayout.TranscodeFolder))
+        foreach (string directory in directoriesToCreate)
         {
-            Directory.CreateDirectory(FileSystemLayout.TranscodeFolder);
-        }
-
-        if (!Directory.Exists(FileSystemLayout.TempFilePoolFolder))
-        {
-            Directory.CreateDirectory(FileSystemLayout.TempFilePoolFolder);
-        }
-
-        if (!Directory.Exists(FileSystemLayout.FontsCacheFolder))
-        {
-            Directory.CreateDirectory(FileSystemLayout.FontsCacheFolder);
-        }
-
-        if (!Directory.Exists(FileSystemLayout.TemplatesFolder))
-        {
-            Directory.CreateDirectory(FileSystemLayout.TemplatesFolder);
-        }
-
-        if (!Directory.Exists(FileSystemLayout.MusicVideoCreditsTemplatesFolder))
-        {
-            Directory.CreateDirectory(FileSystemLayout.MusicVideoCreditsTemplatesFolder);
-        }
-
-        if (!Directory.Exists(FileSystemLayout.ScriptsFolder))
-        {
-            Directory.CreateDirectory(FileSystemLayout.ScriptsFolder);
-        }
-
-        if (!Directory.Exists(FileSystemLayout.MultiEpisodeShuffleTemplatesFolder))
-        {
-            Directory.CreateDirectory(FileSystemLayout.MultiEpisodeShuffleTemplatesFolder);
-        }
-
-        if (!Directory.Exists(FileSystemLayout.AudioStreamSelectorScriptsFolder))
-        {
-            Directory.CreateDirectory(FileSystemLayout.AudioStreamSelectorScriptsFolder);
+            if (directory is not null && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
         }
 
         // until we add a setting for a file-specific scheme://host:port to access
@@ -486,7 +473,44 @@ public class Startup
         app.UseForwardedHeaders();
 
         // app.UseHttpLogging();
-        // app.UseSerilogRequestLogging();
+        app.UseSerilogRequestLogging(
+            options =>
+            {
+                options.IncludeQueryInRequestPath = true;
+
+                // Emit debug-level events instead of the defaults
+                options.GetLevel = (httpContext, elapsed, ex) =>
+                {
+                    if (ex is not null)
+                    {
+                        return LogEventLevel.Error;
+                    }
+
+                    if (httpContext.Response.StatusCode > 499)
+                    {
+                        return LogEventLevel.Error;
+                    }
+
+                    if (httpContext.Request.Path.ToUriComponent().StartsWith(
+                            "/iptv",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return LogEventLevel.Debug;
+                    }
+
+                    return LogEventLevel.Verbose;
+                };
+            });
+
+        app.UseRequestLocalization(
+            options =>
+            {
+                CultureInfo[] cinfo = CultureInfo.GetCultures(CultureTypes.AllCultures & ~CultureTypes.NeutralCultures);
+                string[] supportedCultures = cinfo.Select(t => t.Name).Distinct().ToArray();
+                options.AddSupportedCultures(supportedCultures)
+                    .AddSupportedUICultures(supportedCultures)
+                    .SetDefaultCulture("en-US");
+            });
 
         app.UseStaticFiles();
 
@@ -506,61 +530,39 @@ public class Startup
                         .GetRequiredService<ChannelWriter<IFFmpegWorkerRequest>>();
                     writer.TryWrite(new TouchFFmpegSession(ctx.File.PhysicalPath));
                 }
+                // to serve m4s
+                // ServeUnknownFileTypes = true
             });
 
-        app.UseRouting();
-
-        if (OidcHelper.IsEnabled)
-        {
-            app.UseAuthentication();
-            app.UseAuthorization();
-        }
-
-        string v2 = Environment.GetEnvironmentVariable("ETV_UI_V2");
-        if (!env.IsDevelopment() && !string.IsNullOrWhiteSpace(v2))
-        {
-            app.Map(
-                "/v2",
-                app2 =>
-                {
-                    if (string.IsNullOrWhiteSpace(env.WebRootPath))
-                    {
-                        env.WebRootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-                    }
-
-                    app2.UseRouting();
-
-                    if (OidcHelper.IsEnabled)
-                    {
-                        app.UseAuthentication();
-                        app.UseAuthorization();
-                    }
-
-                    app2.UseEndpoints(e => e.MapFallbackToFile("index.html"));
-                    app2.UseFileServer(
-                        new FileServerOptions
-                        {
-                            FileProvider = new PhysicalFileProvider(Path.Combine(env.WebRootPath, "v2"))
-                        });
-                });
-        }
-
-        app.UseEndpoints(
-            endpoints =>
+        app.MapWhen(
+            ctx => !ctx.Request.Path.StartsWithSegments("/iptv"),
+            blazor =>
             {
-                endpoints.MapControllers();
-                endpoints.MapBlazorHub();
-                endpoints.MapFallbackToPage("/_Host");
+                blazor.UseRouting();
 
-                // if (env.IsDevelopment())
-                // {
-                //     endpoints.MapToVueCliProxy(
-                //         "/v2/{*path}",
-                //         new SpaOptions { SourcePath = "client-app" },
-                //         "serve",
-                //         regex: "Compiled successfully",
-                //         forceKill: true);
-                // }
+                if (OidcHelper.IsEnabled)
+                {
+                    blazor.UseAuthentication();
+#pragma warning disable ASP0001
+                    blazor.UseAuthorization();
+#pragma warning restore ASP0001
+                }
+
+                blazor.UseEndpoints(
+                    endpoints =>
+                    {
+                        endpoints.MapControllers();
+                        endpoints.MapBlazorHub();
+                        endpoints.MapFallbackToPage("/_Host");
+                    });
+            });
+
+        app.MapWhen(
+            ctx => ctx.Request.Path.StartsWithSegments("/iptv"),
+            iptv =>
+            {
+                iptv.UseRouting();
+                iptv.UseEndpoints(endpoints => endpoints.MapControllers());
             });
     }
 
@@ -570,6 +572,7 @@ public class Startup
         services.AddSingleton<IPlexTvApiClient, PlexTvApiClient>(); // TODO: does this need to be singleton?
         services.AddSingleton<ITraktApiClient, TraktApiClient>();
         services.AddSingleton<IEntityLocker, EntityLocker>();
+        services.AddSingleton<ISearchTargets, SearchTargets>();
 
         if (SearchHelper.IsElasticSearchEnabled)
         {
@@ -599,6 +602,7 @@ public class Startup
         AddChannel<ISearchIndexBackgroundServiceRequest>(services);
         AddChannel<IScannerBackgroundServiceRequest>(services);
 
+        services.AddScoped<IMacOsConfigFolderHealthCheck, MacOsConfigFolderHealthCheck>();
         services.AddScoped<IFFmpegVersionHealthCheck, FFmpegVersionHealthCheck>();
         services.AddScoped<IFFmpegReportsHealthCheck, FFmpegReportsHealthCheck>();
         services.AddScoped<IHardwareAccelerationHealthCheck, HardwareAccelerationHealthCheck>();
@@ -625,17 +629,25 @@ public class Startup
         services.AddScoped<IMusicVideoRepository, MusicVideoRepository>();
         services.AddScoped<IOtherVideoRepository, OtherVideoRepository>();
         services.AddScoped<ISongRepository, SongRepository>();
+        services.AddScoped<IImageRepository, ImageRepository>();
         services.AddScoped<ILibraryRepository, LibraryRepository>();
         services.AddScoped<IMetadataRepository, MetadataRepository>();
         services.AddScoped<IArtworkRepository, ArtworkRepository>();
+        services.AddScoped<ICollectionEtag, CollectionEtag>();
         services.AddScoped<IFFmpegLocator, FFmpegLocator>();
         services.AddScoped<IFallbackMetadataProvider, FallbackMetadataProvider>();
+        services.AddScoped<ILocalStatisticsProvider, LocalStatisticsProvider>();
+        services.AddScoped<IExternalJsonPlayoutItemProvider, ExternalJsonPlayoutItemProvider>();
         services.AddScoped<IPlayoutBuilder, PlayoutBuilder>();
+        services.AddScoped<IBlockPlayoutBuilder, BlockPlayoutBuilder>();
+        services.AddScoped<IBlockPlayoutPreviewBuilder, BlockPlayoutPreviewBuilder>();
+        services.AddScoped<IExternalJsonPlayoutBuilder, ExternalJsonPlayoutBuilder>();
         services.AddScoped<IImageCache, ImageCache>();
         services.AddScoped<ILocalFileSystem, LocalFileSystem>();
         services.AddScoped<IPlexServerApiClient, PlexServerApiClient>();
         services.AddScoped<IPlexMovieRepository, PlexMovieRepository>();
         services.AddScoped<IPlexTelevisionRepository, PlexTelevisionRepository>();
+        services.AddScoped<IPlexCollectionRepository, PlexCollectionRepository>();
         services.AddScoped<IJellyfinApiClient, JellyfinApiClient>();
         services.AddScoped<IJellyfinPathReplacementService, JellyfinPathReplacementService>();
         services.AddScoped<IJellyfinTelevisionRepository, JellyfinTelevisionRepository>();
@@ -707,5 +719,50 @@ public class Startup
             provider => provider.GetRequiredService<Channel<TMessageType>>().Reader);
         services.AddSingleton(
             provider => provider.GetRequiredService<Channel<TMessageType>>().Writer);
+    }
+    
+    private static void CopyMacOsConfigFolderIfNeeded()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            return;
+        }
+
+        bool newDbExists = File.Exists(FileSystemLayout.DatabasePath);
+        if (newDbExists)
+        {
+            return;
+        }
+
+        bool oldDbExists = File.Exists(FileSystemLayout.MacOsOldDatabasePath);
+        if (!oldDbExists)
+        {
+            return;
+        }
+
+        // safe to move here since
+        //   - old db exists
+        //   - new db does not exist
+
+        Log.Logger.Information(
+            "Migrating config data from {OldFolder} to {NewFolder}",
+            FileSystemLayout.MacOsOldAppDataFolder,
+            FileSystemLayout.AppDataFolder);
+                    
+        try
+        {
+            // delete new config folder
+            if (Directory.Exists(FileSystemLayout.AppDataFolder))
+            {
+                Directory.Delete(FileSystemLayout.AppDataFolder, recursive: true);
+            }
+
+            // move old config folder to new config folder
+            Directory.Move(FileSystemLayout.MacOsOldAppDataFolder, FileSystemLayout.AppDataFolder);
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Warning(ex, "Failed to migrate config data");
+        }
     }
 }

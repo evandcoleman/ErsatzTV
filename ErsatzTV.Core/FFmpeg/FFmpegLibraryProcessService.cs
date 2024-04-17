@@ -153,7 +153,6 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             playbackSettings.NormalizeLoudnessMode switch
             {
                 NormalizeLoudnessMode.LoudNorm => AudioFilter.LoudNorm,
-                NormalizeLoudnessMode.DynAudNorm => AudioFilter.DynAudNorm,
                 _ => AudioFilter.None
             });
 
@@ -200,11 +199,20 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
                 return new AudioInputFile(audioPath, new List<AudioStream> { ffmpegAudioStream }, audioState);
             });
 
+        // when no audio streams are available, use null audio source
+        if (!audioVersion.MediaVersion.Streams.Any(s => s.MediaStreamKind is MediaStreamKind.Audio))
+        {
+            audioInputFile = new NullAudioInputFile(audioState with { AudioDuration = playbackSettings.AudioDuration });
+        }
+
         OutputFormatKind outputFormat = OutputFormatKind.MpegTs;
         switch (channel.StreamingMode)
         {
             case StreamingMode.HttpLiveStreamingSegmenter:
                 outputFormat = OutputFormatKind.Hls;
+                break;
+            case StreamingMode.HttpLiveStreamingSegmenterV2:
+                outputFormat = OutputFormatKind.Nut;
                 break;
             case StreamingMode.HttpLiveStreamingDirect:
             {
@@ -229,7 +237,8 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
         Option<SubtitleInputFile> subtitleInputFile = maybeSubtitle.Map<Option<SubtitleInputFile>>(
             subtitle =>
             {
-                if (!subtitle.IsImage && subtitle.SubtitleKind == SubtitleKind.Embedded && !subtitle.IsExtracted)
+                if (!subtitle.IsImage && subtitle.SubtitleKind == SubtitleKind.Embedded &&
+                    (!subtitle.IsExtracted || string.IsNullOrWhiteSpace(subtitle.Path)))
                 {
                     _logger.LogWarning("Subtitles are not yet available for this item");
                     return None;
@@ -329,7 +338,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
                 channel.FFmpegProfile.Resolution.Width,
                 channel.FFmpegProfile.Resolution.Height);
         }
-        
+
         var desiredState = new FrameState(
             playbackSettings.RealtimeOutput,
             fillerKind == FillerKind.Fallback,
@@ -375,6 +384,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             audioInputFile,
             watermarkInputFile,
             subtitleInputFile,
+            Option<ConcatInputFile>.None,
             VaapiDriverName(hwAccel, vaapiDriver),
             VaapiDeviceName(hwAccel, vaapiDevice),
             FileSystemLayout.FFmpegReportsFolder,
@@ -522,6 +532,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             audioInputFile,
             None,
             subtitleInputFile,
+            Option<ConcatInputFile>.None,
             VaapiDriverName(hwAccel, vaapiDriver),
             VaapiDeviceName(hwAccel, vaapiDevice),
             FileSystemLayout.FFmpegReportsFolder,
@@ -543,7 +554,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
         var resolution = new FrameSize(channel.FFmpegProfile.Resolution.Width, channel.FFmpegProfile.Resolution.Height);
 
         var concatInputFile = new ConcatInputFile(
-            $"http://localhost:{Settings.ListenPort}/ffmpeg/concat/{channel.Number}",
+            $"http://localhost:{Settings.ListenPort}/ffmpeg/concat/{channel.Number}?mode=ts-legacy",
             resolution);
 
         IPipelineBuilder pipelineBuilder = await _pipelineBuilderFactory.GetBuilder(
@@ -552,6 +563,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             None,
             None,
             None,
+            concatInputFile,
             None,
             None,
             FileSystemLayout.FFmpegReportsFolder,
@@ -565,7 +577,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
         return GetCommand(ffmpegPath, None, None, None, concatInputFile, pipeline);
     }
 
-    public async Task<Command> WrapSegmenter(
+    public async Task<Command> ConcatSegmenterChannel(
         string ffmpegPath,
         bool saveReports,
         Channel channel,
@@ -573,9 +585,156 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
         string host)
     {
         var resolution = new FrameSize(channel.FFmpegProfile.Resolution.Width, channel.FFmpegProfile.Resolution.Height);
+        var concatInputFile = new ConcatInputFile(
+            $"http://localhost:{Settings.ListenPort}/ffmpeg/concat/{channel.Number}?mode=segmenter-v2",
+            resolution);
+
+        FFmpegPlaybackSettings playbackSettings = FFmpegPlaybackSettingsCalculator.CalculateConcatSegmenterSettings(
+            channel.FFmpegProfile,
+            Option<int>.None);
+
+        playbackSettings.AudioDuration = Option<TimeSpan>.None;
+
+        string audioFormat = playbackSettings.AudioFormat switch
+        {
+            FFmpegProfileAudioFormat.Aac => AudioFormat.Aac,
+            FFmpegProfileAudioFormat.Ac3 => AudioFormat.Ac3,
+            FFmpegProfileAudioFormat.Copy => AudioFormat.Copy,
+            _ => throw new ArgumentOutOfRangeException($"unexpected audio format {playbackSettings.VideoFormat}")
+        };
+
+        var audioState = new AudioState(
+            audioFormat,
+            playbackSettings.AudioChannels,
+            playbackSettings.AudioBitrate,
+            playbackSettings.AudioBufferSize,
+            playbackSettings.AudioSampleRate,
+            Option<TimeSpan>.None,
+            playbackSettings.NormalizeLoudnessMode switch
+            {
+                // TODO: NormalizeLoudnessMode.LoudNorm => AudioFilter.LoudNorm,
+                _ => AudioFilter.None
+            });
+
+        IPixelFormat pixelFormat = channel.FFmpegProfile.BitDepth switch
+        {
+            FFmpegProfileBitDepth.TenBit => new PixelFormatYuv420P10Le(),
+            _ => new PixelFormatYuv420P()
+        };
+
+        var ffmpegVideoStream = new VideoStream(
+            0,
+            VideoFormat.Raw,
+            Some(pixelFormat),
+            ColorParams.Default,
+            resolution,
+            "1:1",
+            string.Empty,
+            Option<string>.None,
+            false,
+            ScanKind.Progressive);
+
+        var videoInputFile = new VideoInputFile(concatInputFile.Url, new List<VideoStream> { ffmpegVideoStream });
+
+        var ffmpegAudioStream = new AudioStream(1, string.Empty, channel.FFmpegProfile.AudioChannels);
+        Option<AudioInputFile> audioInputFile = new AudioInputFile(
+            concatInputFile.Url,
+            new List<AudioStream> { ffmpegAudioStream },
+            audioState);
+
+        Option<SubtitleInputFile> subtitleInputFile = Option<SubtitleInputFile>.None;
+        Option<WatermarkInputFile> watermarkInputFile = Option<WatermarkInputFile>.None;
+
+        string videoFormat = GetVideoFormat(playbackSettings);
+
+        HardwareAccelerationMode hwAccel = GetHardwareAccelerationMode(playbackSettings, FillerKind.None);
+
+        Option<string> hlsPlaylistPath = Path.Combine(FileSystemLayout.TranscodeFolder, channel.Number, "live.m3u8");
+
+        Option<string> hlsSegmentTemplate = Path.Combine(
+            FileSystemLayout.TranscodeFolder,
+            channel.Number,
+            "live%06d.ts");
+
+        var desiredState = new FrameState(
+            playbackSettings.RealtimeOutput,
+            true,
+            videoFormat,
+            Option<string>.None,
+            Optional(playbackSettings.PixelFormat),
+            resolution,
+            resolution,
+            Option<FrameSize>.None,
+            false,
+            playbackSettings.FrameRate,
+            playbackSettings.VideoBitrate,
+            playbackSettings.VideoBufferSize,
+            playbackSettings.VideoTrackTimeScale,
+            playbackSettings.Deinterlace);
+
+        Option<string> vaapiDriver = VaapiDriverName(hwAccel, channel.FFmpegProfile.VaapiDriver);
+        Option<string> vaapiDevice = VaapiDeviceName(hwAccel, channel.FFmpegProfile.VaapiDevice);
+
+        var ffmpegState = new FFmpegState(
+            saveReports,
+            HardwareAccelerationMode.None,
+            hwAccel,
+            vaapiDriver,
+            vaapiDevice,
+            playbackSettings.StreamSeek,
+            Option<TimeSpan>.None,
+            channel.StreamingMode != StreamingMode.HttpLiveStreamingDirect,
+            "ErsatzTV",
+            channel.Name,
+            Option<string>.None,
+            Option<string>.None,
+            Option<string>.None,
+            OutputFormatKind.Hls,
+            hlsPlaylistPath,
+            hlsSegmentTemplate,
+            0,
+            playbackSettings.ThreadCount,
+            Optional(channel.FFmpegProfile.QsvExtraHardwareFrames));
+
+        _logger.LogDebug("FFmpeg desired state {FrameState}", desiredState);
+
+        IPipelineBuilder pipelineBuilder = await _pipelineBuilderFactory.GetBuilder(
+            hwAccel,
+            videoInputFile,
+            audioInputFile,
+            watermarkInputFile,
+            subtitleInputFile,
+            concatInputFile,
+            vaapiDriver,
+            vaapiDevice,
+            FileSystemLayout.FFmpegReportsFolder,
+            FileSystemLayout.FontsCacheFolder,
+            ffmpegPath);
+
+        FFmpegPipeline pipeline = pipelineBuilder.Build(ffmpegState, desiredState);
+
+        // copy video input options to concat input
+        concatInputFile.InputOptions.AddRange(videoInputFile.InputOptions);
+
+        return GetCommand(ffmpegPath, None, None, None, concatInputFile, pipeline);
+    }
+
+    public async Task<Command> WrapSegmenter(
+        string ffmpegPath,
+        bool saveReports,
+        Channel channel,
+        string scheme,
+        string host,
+        string accessToken)
+    {
+        var resolution = new FrameSize(channel.FFmpegProfile.Resolution.Width, channel.FFmpegProfile.Resolution.Height);
+
+        string accessTokenQuery = string.IsNullOrWhiteSpace(accessToken)
+            ? string.Empty
+            : $"&access_token={accessToken}";
 
         var concatInputFile = new ConcatInputFile(
-            $"http://localhost:{Settings.ListenPort}/iptv/channel/{channel.Number}.m3u8?mode=segmenter",
+            $"http://localhost:{Settings.ListenPort}/iptv/channel/{channel.Number}.m3u8?mode=segmenter{accessTokenQuery}",
             resolution);
 
         IPipelineBuilder pipelineBuilder = await _pipelineBuilderFactory.GetBuilder(
@@ -584,6 +743,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             None,
             None,
             None,
+            concatInputFile,
             None,
             None,
             FileSystemLayout.FFmpegReportsFolder,
@@ -622,6 +782,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             None,
             None,
             None,
+            Option<ConcatInputFile>.None,
             None,
             None,
             FileSystemLayout.FFmpegReportsFolder,

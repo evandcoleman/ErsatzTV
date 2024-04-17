@@ -32,7 +32,7 @@ public class RemoveItemsFromCollectionHandler : IRequestHandler<RemoveItemsFromC
     {
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         Validation<BaseError, Collection> validation = await Validate(dbContext, request);
-        return await LanguageExtensions.Apply(validation, c => ApplyRemoveItemsRequest(dbContext, request, c));
+        return await validation.Apply(c => ApplyRemoveItemsRequest(dbContext, request, c));
     }
 
     private async Task<Unit> ApplyRemoveItemsRequest(
@@ -46,7 +46,7 @@ public class RemoveItemsFromCollectionHandler : IRequestHandler<RemoveItemsFromC
 
         itemsToRemove.ForEach(m => collection.MediaItems.Remove(m));
 
-        if (itemsToRemove.Any() && await dbContext.SaveChangesAsync() > 0)
+        if (itemsToRemove.Count != 0 && await dbContext.SaveChangesAsync() > 0)
         {
             // refresh all playouts that use this collection
             foreach (int playoutId in await _mediaCollectionRepository.PlayoutIdsUsingCollection(collection.Id))

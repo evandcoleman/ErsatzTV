@@ -5,10 +5,10 @@ namespace ErsatzTV.FFmpeg.Capabilities;
 
 public class FFmpegCapabilities : IFFmpegCapabilities
 {
-    private readonly IReadOnlySet<string> _ffmpegHardwareAccelerations;
     private readonly IReadOnlySet<string> _ffmpegDecoders;
     private readonly IReadOnlySet<string> _ffmpegEncoders;
     private readonly IReadOnlySet<string> _ffmpegFilters;
+    private readonly IReadOnlySet<string> _ffmpegHardwareAccelerations;
     private readonly IReadOnlySet<string> _ffmpegOptions;
 
     public FFmpegCapabilities(
@@ -27,9 +27,15 @@ public class FFmpegCapabilities : IFFmpegCapabilities
 
     public bool HasHardwareAcceleration(HardwareAccelerationMode hardwareAccelerationMode)
     {
+        // AMF isn't a "hwaccel" in ffmpeg, so check for presence of encoders
+        if (hardwareAccelerationMode is HardwareAccelerationMode.Amf)
+        {
+            return _ffmpegEncoders.Any(
+                e => e.EndsWith($"_{FFmpegKnownHardwareAcceleration.Amf.Name}", StringComparison.OrdinalIgnoreCase));
+        }
+
         Option<FFmpegKnownHardwareAcceleration> maybeAccelToCheck = hardwareAccelerationMode switch
         {
-            HardwareAccelerationMode.Amf => FFmpegKnownHardwareAcceleration.Amf,
             HardwareAccelerationMode.Nvenc => FFmpegKnownHardwareAcceleration.Cuda,
             HardwareAccelerationMode.Qsv => FFmpegKnownHardwareAcceleration.Qsv,
             HardwareAccelerationMode.Vaapi => FFmpegKnownHardwareAcceleration.Vaapi,
@@ -67,6 +73,7 @@ public class FFmpegCapabilities : IFFmpegCapabilities
             VideoFormat.Vp9 => new DecoderVp9(),
             VideoFormat.Av1 => new DecoderAv1(_ffmpegDecoders),
 
+            VideoFormat.Raw => new DecoderRawVideo(),
             VideoFormat.Undetermined => new DecoderImplicit(),
             VideoFormat.Copy => new DecoderImplicit(),
             VideoFormat.GeneratedImage => new DecoderImplicit(),

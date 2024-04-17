@@ -47,19 +47,9 @@ jobs:
           submodules: true
 
       - name: Setup .NET Core
-        uses: actions/setup-dotnet@v3
+        uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 7.0.x
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '14'
-
-      - name: Cache NPM dependencies
-        uses: bahmutov/npm-install@v1.8.28
-        with:
-          working-directory: ErsatzTV/client-app
+          dotnet-version: 8.0.x
 
       - name: Clean
         run: dotnet clean --configuration Release && dotnet nuget locals all --clear
@@ -68,7 +58,7 @@ jobs:
         run: dotnet restore -r "${{ matrix.target}}"
 
       - name: Import Code-Signing Certificates
-        uses: Apple-Actions/import-codesign-certs@v1
+        uses: Apple-Actions/import-codesign-certs@v2
         with:
           p12-file-base64: ${{ secrets.apple_developer_certificate_p12_base64 }}
           p12-password: ${{ secrets.apple_developer_certificate_password }}
@@ -83,8 +73,8 @@ jobs:
         shell: bash
         run: |
           sed -i '' '/Scanner/d' ErsatzTV/ErsatzTV.csproj
-          dotnet publish ErsatzTV.Scanner/ErsatzTV.Scanner.csproj --framework net7.0 --runtime "${{ matrix.target }}" -c Release -o publish -p:InformationalVersion="${{ inputs.release_version }}-${{ matrix.target }}" -p:EnableCompressionInSingleFile=false -p:DebugType=Embedded -p:PublishSingleFile=true --self-contained true
-          dotnet publish ErsatzTV/ErsatzTV.csproj --framework net7.0 --runtime "${{ matrix.target }}" -c Release -o publish -p:InformationalVersion="${{ inputs.release_version }}-${{ matrix.target }}" -p:EnableCompressionInSingleFile=false -p:DebugType=Embedded -p:PublishSingleFile=true --self-contained true
+          dotnet publish ErsatzTV.Scanner/ErsatzTV.Scanner.csproj --framework net8.0 --runtime "${{ matrix.target }}" -c Release -o publish -p:InformationalVersion="${{ inputs.release_version }}-${{ matrix.target }}" -p:EnableCompressionInSingleFile=false -p:DebugType=Embedded -p:PublishSingleFile=true --self-contained true
+          dotnet publish ErsatzTV/ErsatzTV.csproj --framework net8.0 --runtime "${{ matrix.target }}" -c Release -o publish -p:InformationalVersion="${{ inputs.release_version }}-${{ matrix.target }}" -p:EnableCompressionInSingleFile=false -p:DebugType=Embedded -p:PublishSingleFile=true --self-contained true
 
       - name: Bundle
         shell: bash
@@ -118,12 +108,8 @@ jobs:
       - name: Notarize
         shell: bash
         run: |
-          brew tap mitchellh/gon
-          brew install mitchellh/gon/gon
-          gon -log-level=debug -log-json ./gon.json
-        env:
-          AC_USERNAME: ${{ secrets.ac_username }}
-          AC_PASSWORD: ${{ secrets.ac_password }}
+          xcrun notarytool submit ErsatzTV.dmg --apple-id "${{ secrets.ac_username }}" --password "${{ secrets.ac_password }}" --team-id 32MB98Q32R --wait
+          xcrun stapler staple ErsatzTV.dmg
 
       - name: Cleanup
         shell: bash
@@ -177,25 +163,9 @@ jobs:
           fetch-depth: 0
 
       - name: Setup .NET Core
-        uses: actions/setup-dotnet@v3
+        uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 7.0.x
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '14'
-
-      - name: Setup Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-        if: ${{ matrix.kind == 'windows' }}
-
-      - name: Cache NPM dependencies
-        uses: bahmutov/npm-install@v1.8.28
-        with:
-          working-directory: ErsatzTV/client-app
+          dotnet-version: 8.0.x
 
       - name: Clean
         run: dotnet clean --configuration Release && dotnet nuget locals all --clear
@@ -208,7 +178,7 @@ jobs:
         id: downloadffmpeg
         name: Download ffmpeg
         with:
-          url: "https://github.com/GyanD/codexffmpeg/releases/download/2023-10-16-git-5ddab49d48/ffmpeg-2023-10-16-git-5ddab49d48-full_build.7z"
+          url: "https://github.com/ErsatzTV/ErsatzTV-ffmpeg/releases/download/6.1-working-cuvid/ffmpeg-6.1-working-cuvid.7z"
           target: ffmpeg/
 
       - name: Build
@@ -220,8 +190,8 @@ jobs:
 
           # Build everything
           sed -i '/Scanner/d' ErsatzTV/ErsatzTV.csproj
-          dotnet publish ErsatzTV.Scanner/ErsatzTV.Scanner.csproj --framework net7.0 --runtime "${{ matrix.target }}" -c Release -o "$release_name" -p:InformationalVersion="${{ inputs.release_version }}-${{ matrix.target }}" -p:EnableCompressionInSingleFile=true -p:DebugType=Embedded -p:PublishSingleFile=true --self-contained true
-          dotnet publish ErsatzTV/ErsatzTV.csproj --framework net7.0 --runtime "${{ matrix.target }}" -c Release -o "$release_name" -p:InformationalVersion="${{ inputs.release_version }}-${{ matrix.target }}" -p:EnableCompressionInSingleFile=true -p:DebugType=Embedded -p:PublishSingleFile=true --self-contained true
+          dotnet publish ErsatzTV.Scanner/ErsatzTV.Scanner.csproj --framework net8.0 --runtime "${{ matrix.target }}" -c Release -o "$release_name" -p:InformationalVersion="${{ inputs.release_version }}-${{ matrix.target }}" -p:EnableCompressionInSingleFile=true -p:DebugType=Embedded -p:PublishSingleFile=true --self-contained true
+          dotnet publish ErsatzTV/ErsatzTV.csproj --framework net8.0 --runtime "${{ matrix.target }}" -c Release -o "$release_name" -p:InformationalVersion="${{ inputs.release_version }}-${{ matrix.target }}" -p:EnableCompressionInSingleFile=true -p:DebugType=Embedded -p:PublishSingleFile=true --self-contained true
 
           # Build Windows launcher
           if [ "${{ matrix.kind }}" == "windows" ]; then
@@ -245,9 +215,6 @@ jobs:
 
           # Delete output directory
           rm -r "$release_name"
-        env:
-          AC_USERNAME: ${{ secrets.ac_username }}
-          AC_PASSWORD: ${{ secrets.ac_password }}
 
       - name: Delete old release assets
         uses: mknejp/delete-release-assets@v1
@@ -259,6 +226,7 @@ jobs:
           assets: |
             *${{ matrix.target }}.zip
             *${{ matrix.target }}.tar.gz
+
       - name: Publish
         uses: softprops/action-gh-release@v1
         with:

@@ -46,7 +46,7 @@ public class ElasticSearchIndex : ISearchIndex
         return exists.IsValidResponse;
     }
 
-    public int Version => 37;
+    public int Version => 43;
 
     public async Task<bool> Initialize(
         ILocalFileSystem localFileSystem,
@@ -137,6 +137,9 @@ public class ElasticSearchIndex : ISearchIndex
                 case Song song:
                     await UpdateSong(searchRepository, song);
                     break;
+                case Image image:
+                    await UpdateImage(searchRepository, image);
+                    break;
             }
         }
 
@@ -159,7 +162,7 @@ public class ElasticSearchIndex : ISearchIndex
         var items = new List<MinimalElasticSearchItem>();
         var totalCount = 0;
 
-        Query parsedQuery = LuceneSearchIndex.ParseQuery(query);
+        Query parsedQuery = SearchQueryParser.ParseQuery(query);
 
         SearchResponse<MinimalElasticSearchItem> response = await _client.SearchAsync<MinimalElasticSearchItem>(
             s => s.Index(IndexName)
@@ -211,6 +214,9 @@ public class ElasticSearchIndex : ISearchIndex
                         .Keyword(t => t.State, t => t.Store(false))
                         .Text(t => t.MetadataKind, t => t.Store(false))
                         .Text(t => t.Language, t => t.Store(false))
+                        .Text(t => t.LanguageTag, t => t.Store(false))
+                        .Text(t => t.SubLanguage, t => t.Store(false))
+                        .Text(t => t.SubLanguageTag, t => t.Store(false))
                         .IntegerNumber(t => t.Height, t => t.Store(false))
                         .IntegerNumber(t => t.Width, t => t.Store(false))
                         .Keyword(t => t.VideoCodec, t => t.Store(false))
@@ -231,6 +237,8 @@ public class ElasticSearchIndex : ISearchIndex
                         .Text(t => t.ShowTitle, t => t.Store(false))
                         .Text(t => t.ShowGenre, t => t.Store(false))
                         .Text(t => t.ShowTag, t => t.Store(false))
+                        .Text(t => t.ShowStudio, t => t.Store(false))
+                        .Keyword(t => t.ShowContentRating, t => t.Store(false))
                         .Text(t => t.Style, t => t.Store(false))
                         .Text(t => t.Mood, t => t.Store(false))
                         .Text(t => t.Album, t => t.Store(false))
@@ -293,6 +301,8 @@ public class ElasticSearchIndex : ISearchIndex
                     MetadataKind = metadata.MetadataKind.ToString(),
                     Language = await GetLanguages(searchRepository, movie.MediaVersions),
                     LanguageTag = GetLanguageTags(movie.MediaVersions),
+                    SubLanguage = await GetSubLanguages(searchRepository, movie.MediaVersions),
+                    SubLanguageTag = GetSubLanguageTags(movie.MediaVersions),
                     ContentRating = GetContentRatings(metadata.ContentRating),
                     ReleaseDate = GetReleaseDate(metadata.ReleaseDate),
                     AddedDate = GetAddedDate(metadata.DateAdded),
@@ -344,6 +354,10 @@ public class ElasticSearchIndex : ISearchIndex
                     MetadataKind = metadata.MetadataKind.ToString(),
                     Language = await GetLanguages(searchRepository, await searchRepository.GetLanguagesForShow(show)),
                     LanguageTag = await searchRepository.GetLanguagesForShow(show),
+                    SubLanguage = await GetLanguages(
+                        searchRepository,
+                        await searchRepository.GetSubLanguagesForShow(show)),
+                    SubLanguageTag = await searchRepository.GetSubLanguagesForShow(show),
                     ContentRating = GetContentRatings(metadata.ContentRating),
                     ReleaseDate = GetReleaseDate(metadata.ReleaseDate),
                     AddedDate = GetAddedDate(metadata.DateAdded),
@@ -399,10 +413,16 @@ public class ElasticSearchIndex : ISearchIndex
                     ShowTitle = showMetadata.Title,
                     ShowGenre = showMetadata.Genres.Map(g => g.Name).ToList(),
                     ShowTag = showMetadata.Tags.Map(t => t.Name).ToList(),
+                    ShowStudio = showMetadata.Studios.Map(s => s.Name).ToList(),
+                    ShowContentRating = GetContentRatings(showMetadata.ContentRating),
                     Language = await GetLanguages(
                         searchRepository,
                         await searchRepository.GetLanguagesForSeason(season)),
                     LanguageTag = await searchRepository.GetLanguagesForSeason(season),
+                    SubLanguage = await GetLanguages(
+                        searchRepository,
+                        await searchRepository.GetSubLanguagesForSeason(season)),
+                    SubLanguageTag = await searchRepository.GetSubLanguagesForSeason(season),
                     ContentRating = GetContentRatings(showMetadata.ContentRating),
                     ReleaseDate = GetReleaseDate(metadata.ReleaseDate),
                     AddedDate = GetAddedDate(metadata.DateAdded),
@@ -448,6 +468,10 @@ public class ElasticSearchIndex : ISearchIndex
                         searchRepository,
                         await searchRepository.GetLanguagesForArtist(artist)),
                     LanguageTag = await searchRepository.GetLanguagesForArtist(artist),
+                    SubLanguage = await GetLanguages(
+                        searchRepository,
+                        await searchRepository.GetSubLanguagesForArtist(artist)),
+                    SubLanguageTag = await searchRepository.GetSubLanguagesForArtist(artist),
                     AddedDate = GetAddedDate(metadata.DateAdded),
                     Genre = metadata.Genres.Map(g => g.Name).ToList(),
                     Style = metadata.Styles.Map(t => t.Name).ToList(),
@@ -480,7 +504,7 @@ public class ElasticSearchIndex : ISearchIndex
                     Id = musicVideo.Id,
                     Type = LuceneSearchIndex.MusicVideoType,
                     Title = metadata.Title,
-                    SortTitle = metadata.SortTitle.ToLowerInvariant(),
+                    SortTitle = (metadata.SortTitle ?? string.Empty).ToLowerInvariant(),
                     LibraryName = musicVideo.LibraryPath.Library.Name,
                     LibraryId = musicVideo.LibraryPath.Library.Id,
                     TitleAndYear = LuceneSearchIndex.GetTitleAndYear(metadata),
@@ -489,6 +513,8 @@ public class ElasticSearchIndex : ISearchIndex
                     MetadataKind = metadata.MetadataKind.ToString(),
                     Language = await GetLanguages(searchRepository, musicVideo.MediaVersions),
                     LanguageTag = GetLanguageTags(musicVideo.MediaVersions),
+                    SubLanguage = await GetSubLanguages(searchRepository, musicVideo.MediaVersions),
+                    SubLanguageTag = GetSubLanguageTags(musicVideo.MediaVersions),
                     ReleaseDate = GetReleaseDate(metadata.ReleaseDate),
                     AddedDate = GetAddedDate(metadata.DateAdded),
                     Album = metadata.Album ?? string.Empty,
@@ -568,6 +594,8 @@ public class ElasticSearchIndex : ISearchIndex
                     EpisodeNumber = metadata.EpisodeNumber,
                     Language = await GetLanguages(searchRepository, episode.MediaVersions),
                     LanguageTag = GetLanguageTags(episode.MediaVersions),
+                    SubLanguage = await GetSubLanguages(searchRepository, episode.MediaVersions),
+                    SubLanguageTag = GetSubLanguageTags(episode.MediaVersions),
                     ReleaseDate = GetReleaseDate(metadata.ReleaseDate),
                     AddedDate = GetAddedDate(metadata.DateAdded),
                     Plot = metadata.Plot ?? string.Empty,
@@ -587,6 +615,8 @@ public class ElasticSearchIndex : ISearchIndex
                     doc.ShowTitle = showMetadata.Title;
                     doc.ShowGenre = showMetadata.Genres.Map(g => g.Name).ToList();
                     doc.ShowTag = showMetadata.Tags.Map(t => t.Name).ToList();
+                    doc.ShowStudio = showMetadata.Studios.Map(s => s.Name).ToList();
+                    doc.ShowContentRating = GetContentRatings(showMetadata.ContentRating);
                 }
 
                 AddStatistics(doc, episode.MediaVersions);
@@ -626,6 +656,8 @@ public class ElasticSearchIndex : ISearchIndex
                     MetadataKind = metadata.MetadataKind.ToString(),
                     Language = await GetLanguages(searchRepository, otherVideo.MediaVersions),
                     LanguageTag = GetLanguageTags(otherVideo.MediaVersions),
+                    SubLanguage = await GetSubLanguages(searchRepository, otherVideo.MediaVersions),
+                    SubLanguageTag = GetSubLanguageTags(otherVideo.MediaVersions),
                     ContentRating = GetContentRatings(metadata.ContentRating),
                     ReleaseDate = GetReleaseDate(metadata.ReleaseDate),
                     AddedDate = GetAddedDate(metadata.DateAdded),
@@ -675,10 +707,12 @@ public class ElasticSearchIndex : ISearchIndex
                     MetadataKind = metadata.MetadataKind.ToString(),
                     Language = await GetLanguages(searchRepository, song.MediaVersions),
                     LanguageTag = GetLanguageTags(song.MediaVersions),
+                    SubLanguage = await GetSubLanguages(searchRepository, song.MediaVersions),
+                    SubLanguageTag = GetSubLanguageTags(song.MediaVersions),
                     AddedDate = GetAddedDate(metadata.DateAdded),
                     Album = metadata.Album ?? string.Empty,
-                    Artist = !string.IsNullOrWhiteSpace(metadata.Artist) ? new List<string> { metadata.Artist } : null,
-                    AlbumArtist = metadata.AlbumArtist,
+                    Artist = metadata.Artists.ToList(),
+                    AlbumArtist = metadata.AlbumArtists.ToList(),
                     Genre = metadata.Genres.Map(g => g.Name).ToList(),
                     Tag = metadata.Tags.Map(t => t.Name).ToList()
                 };
@@ -696,6 +730,59 @@ public class ElasticSearchIndex : ISearchIndex
             {
                 metadata.Song = null;
                 _logger.LogWarning(ex, "Error indexing song with metadata {@Metadata}", metadata);
+            }
+        }
+    }
+
+    private async Task UpdateImage(ISearchRepository searchRepository, Image image)
+    {
+        foreach (ImageMetadata metadata in image.ImageMetadata.HeadOrNone())
+        {
+            try
+            {
+                var doc = new ElasticSearchItem
+                {
+                    Id = image.Id,
+                    Type = LuceneSearchIndex.ImageType,
+                    Title = metadata.Title,
+                    SortTitle = metadata.SortTitle.ToLowerInvariant(),
+                    LibraryName = image.LibraryPath.Library.Name,
+                    LibraryId = image.LibraryPath.Library.Id,
+                    TitleAndYear = LuceneSearchIndex.GetTitleAndYear(metadata),
+                    JumpLetter = LuceneSearchIndex.GetJumpLetter(metadata),
+                    State = image.State.ToString(),
+                    MetadataKind = metadata.MetadataKind.ToString(),
+                    Language = await GetLanguages(searchRepository, image.MediaVersions),
+                    LanguageTag = GetLanguageTags(image.MediaVersions),
+                    SubLanguage = await GetSubLanguages(searchRepository, image.MediaVersions),
+                    SubLanguageTag = GetSubLanguageTags(image.MediaVersions),
+                    AddedDate = GetAddedDate(metadata.DateAdded),
+                    Genre = metadata.Genres.Map(g => g.Name).ToList(),
+                    Tag = metadata.Tags.Map(t => t.Name).ToList()
+                };
+
+                IEnumerable<int> libraryFolderIds = image.MediaVersions
+                    .SelectMany(mv => mv.MediaFiles)
+                    .SelectMany(mf => Optional(mf.LibraryFolderId));
+
+                foreach (int libraryFolderId in libraryFolderIds)
+                {
+                    doc.LibraryFolderId = libraryFolderId;
+                }
+
+                AddStatistics(doc, image.MediaVersions);
+
+                foreach ((string key, List<string> value) in GetMetadataGuids(metadata))
+                {
+                    doc.AdditionalProperties.Add(key, value);
+                }
+
+                await _client.IndexAsync(doc, IndexName);
+            }
+            catch (Exception ex)
+            {
+                metadata.Image = null;
+                _logger.LogWarning(ex, "Error indexing image with metadata {@Metadata}", metadata);
             }
         }
     }
@@ -741,7 +828,27 @@ public class ElasticSearchIndex : ISearchIndex
 
         return result;
     }
-    
+
+    private async Task<List<string>> GetSubLanguages(
+        ISearchRepository searchRepository,
+        IEnumerable<MediaVersion> mediaVersions)
+    {
+        var result = new List<string>();
+
+        foreach (MediaVersion version in mediaVersions.HeadOrNone())
+        {
+            var mediaCodes = version.Streams
+                .Filter(ms => ms.MediaStreamKind is MediaStreamKind.Subtitle or MediaStreamKind.ExternalSubtitle)
+                .Map(ms => ms.Language)
+                .Distinct()
+                .ToList();
+
+            result.AddRange(await GetLanguages(searchRepository, mediaCodes));
+        }
+
+        return result;
+    }
+
     private async Task<List<string>> GetLanguages(ISearchRepository searchRepository, List<string> mediaCodes)
     {
         var englishNames = new System.Collections.Generic.HashSet<string>();
@@ -757,10 +864,21 @@ public class ElasticSearchIndex : ISearchIndex
 
         return englishNames.ToList();
     }
-    
+
     private static List<string> GetLanguageTags(IEnumerable<MediaVersion> mediaVersions) =>
         mediaVersions
             .Map(mv => mv.Streams.Filter(ms => ms.MediaStreamKind == MediaStreamKind.Audio).Map(ms => ms.Language))
+            .Flatten()
+            .Filter(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct()
+            .ToList();
+
+    private static List<string> GetSubLanguageTags(IEnumerable<MediaVersion> mediaVersions) =>
+        mediaVersions
+            .Map(
+                mv => mv.Streams
+                    .Filter(ms => ms.MediaStreamKind is MediaStreamKind.Subtitle or MediaStreamKind.ExternalSubtitle)
+                    .Map(ms => ms.Language))
             .Flatten()
             .Filter(s => !string.IsNullOrWhiteSpace(s))
             .Distinct()
@@ -803,7 +921,7 @@ public class ElasticSearchIndex : ISearchIndex
         }
     }
 
-    private static Dictionary<string, List<string>> GetMetadataGuids(Metadata metadata)
+    private static Dictionary<string, List<string>> GetMetadataGuids(Core.Domain.Metadata metadata)
     {
         var result = new Dictionary<string, List<string>>();
 
@@ -813,13 +931,9 @@ public class ElasticSearchIndex : ISearchIndex
             if (split.Length == 2 && !string.IsNullOrWhiteSpace(split[1]))
             {
                 string key = split[0];
-                string value = split[1].ToLowerInvariant();
-                if (!result.ContainsKey(key))
-                {
-                    result.Add(key, new List<string>());
-                }
-
-                result[key].Add(value);
+                string v2 = split[1].ToLowerInvariant();
+                result.TryAdd(key, new List<string>());
+                result[key].Add(v2);
             }
         }
 

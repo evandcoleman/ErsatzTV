@@ -88,6 +88,7 @@
                                                 </MudSelect>
                                             </MudElement>
                                         }
+
                                         @if (_model.HardwareAcceleration is HardwareAccelerationKind.Vaapi or HardwareAccelerationKind.Qsv)
                                         {
                                             <MudElement HtmlTag="div" Class="mt-3">
@@ -138,7 +139,6 @@
                                         <MudSelect Label="Normalize Loudness" @bind-Value="_model.NormalizeLoudnessMode" For="@(() => _model.NormalizeLoudnessMode)">
                                             <MudSelectItem Value="@NormalizeLoudnessMode.Off">Off</MudSelectItem>
                                             <MudSelectItem Value="@NormalizeLoudnessMode.LoudNorm">loudnorm</MudSelectItem>
-                                            <MudSelectItem Value="@NormalizeLoudnessMode.DynAudNorm">dynaudnorm</MudSelectItem>
                                         </MudSelect>
                                     </MudElement>
                                 </MudItem>
@@ -196,7 +196,7 @@
         {
             _resolutions = restoredResolutions;
         }
-        
+
         if (!ApplicationState.TryTakeFromJson("_hardwareAccelerationKinds", out List<HardwareAccelerationKind> restoredHardwareAccelerationKinds))
         {
             _hardwareAccelerationKinds = await _mediator.Send(new GetSupportedHardwareAccelerationKinds(), _cts.Token);
@@ -263,9 +263,7 @@
         _messageStore.Clear();
         if (_editContext.Validate())
         {
-            Seq<BaseError> errorMessage = IsEdit ?
-                (await _mediator.Send(_model.ToUpdate(), _cts.Token)).LeftToSeq() :
-                (await _mediator.Send(_model.ToCreate(), _cts.Token)).LeftToSeq();
+            Seq<BaseError> errorMessage = IsEdit ? (await _mediator.Send(_model.ToUpdate(), _cts.Token)).LeftToSeq() : (await _mediator.Send(_model.ToCreate(), _cts.Token)).LeftToSeq();
 
             errorMessage.HeadOrNone().Match(
                 error =>

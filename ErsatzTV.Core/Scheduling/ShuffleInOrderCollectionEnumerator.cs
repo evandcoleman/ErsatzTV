@@ -34,7 +34,8 @@ public class ShuffleInOrderCollectionEnumerator : IMediaCollectionEnumerator
         _random = new Random(state.Seed);
         _shuffled = Shuffle(_collections, _random);
         _lazyMinimumDuration =
-            new Lazy<Option<TimeSpan>>(() => _shuffled.Bind(i => i.GetDuration()).OrderBy(identity).HeadOrNone());
+            new Lazy<Option<TimeSpan>>(
+                () => _shuffled.Bind(i => i.GetNonZeroDuration()).OrderBy(identity).HeadOrNone());
 
         State = new CollectionEnumeratorState { Seed = state.Seed };
         while (State.Index < state.Index)
@@ -86,7 +87,7 @@ public class ShuffleInOrderCollectionEnumerator : IMediaCollectionEnumerator
 
     public int Count => _shuffled.Count;
 
-    private IList<MediaItem> Shuffle(IList<CollectionWithItems> collections, Random random)
+    private MediaItem[] Shuffle(IList<CollectionWithItems> collections, Random random)
     {
         // based on https://keyj.emphy.de/balanced-shuffle/
 
@@ -126,7 +127,7 @@ public class ShuffleInOrderCollectionEnumerator : IMediaCollectionEnumerator
             }
         }
 
-        return result;
+        return result.ToArray();
     }
 
     private List<OrderedCollection> Fill(List<OrderedCollection> orderedCollections, Random random)
@@ -166,12 +167,12 @@ public class ShuffleInOrderCollectionEnumerator : IMediaCollectionEnumerator
                 k--;
             }
 
-            if (smaller.Any())
+            if (smaller.Count != 0)
             {
                 ordered.AddRange(smaller);
             }
 
-            if (larger.Any())
+            if (larger.Count != 0)
             {
                 ordered.AddRange(larger);
             }
@@ -188,20 +189,20 @@ public class ShuffleInOrderCollectionEnumerator : IMediaCollectionEnumerator
         return result;
     }
 
-    private static IList<Option<MediaItem>> OrderItems(CollectionWithItems collectionWithItems)
+    private static Option<MediaItem>[] OrderItems(CollectionWithItems collectionWithItems)
     {
         if (collectionWithItems.UseCustomOrder)
         {
-            return collectionWithItems.MediaItems.Map(Some).ToList();
+            return collectionWithItems.MediaItems.Map(Some).ToArray();
         }
 
         return collectionWithItems.MediaItems
             .OrderBy(identity, new ChronologicalMediaComparer())
             .Map(Some)
-            .ToList();
+            .ToArray();
     }
 
-    private static IList<Option<MediaItem>> Shuffle(IEnumerable<Option<MediaItem>> list, Random random)
+    private static Option<MediaItem>[] Shuffle(IEnumerable<Option<MediaItem>> list, Random random)
     {
         Option<MediaItem>[] copy = list.ToArray();
 

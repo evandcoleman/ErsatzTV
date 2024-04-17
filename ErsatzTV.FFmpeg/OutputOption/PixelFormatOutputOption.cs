@@ -8,10 +8,7 @@ public class PixelFormatOutputOption : OutputOption
 
     public PixelFormatOutputOption(IPixelFormat pixelFormat) => _pixelFormat = pixelFormat;
 
-    public override IList<string> OutputOptions => new List<string>
-    {
-        "-pix_fmt", _pixelFormat.FFmpegName
-    };
+    public override string[] OutputOptions => ["-pix_fmt", _pixelFormat.Name];
 
     public override FrameState NextState(FrameState currentState) =>
         currentState with { PixelFormat = Some(_pixelFormat) };

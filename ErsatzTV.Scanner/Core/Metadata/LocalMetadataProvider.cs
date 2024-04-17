@@ -5,6 +5,7 @@ using ErsatzTV.Core.Extensions;
 using ErsatzTV.Core.Interfaces.Metadata;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Metadata;
+using ErsatzTV.Infrastructure.Metadata;
 using ErsatzTV.Scanner.Core.Interfaces.Metadata;
 using ErsatzTV.Scanner.Core.Interfaces.Metadata.Nfo;
 using ErsatzTV.Scanner.Core.Metadata.Nfo;
@@ -14,11 +15,14 @@ namespace ErsatzTV.Scanner.Core.Metadata;
 
 public class LocalMetadataProvider : ILocalMetadataProvider
 {
+    private static readonly char[] GenreSeparators = { '/', '|', ';', '\\' };
+
     private readonly IArtistNfoReader _artistNfoReader;
     private readonly IArtistRepository _artistRepository;
     private readonly IClient _client;
     private readonly IEpisodeNfoReader _episodeNfoReader;
     private readonly IFallbackMetadataProvider _fallbackMetadataProvider;
+    private readonly IImageRepository _imageRepository;
     private readonly ILocalFileSystem _localFileSystem;
     private readonly ILocalStatisticsProvider _localStatisticsProvider;
     private readonly ILogger<LocalMetadataProvider> _logger;
@@ -41,6 +45,7 @@ public class LocalMetadataProvider : ILocalMetadataProvider
         IMusicVideoRepository musicVideoRepository,
         IOtherVideoRepository otherVideoRepository,
         ISongRepository songRepository,
+        IImageRepository imageRepository,
         IFallbackMetadataProvider fallbackMetadataProvider,
         ILocalFileSystem localFileSystem,
         IMovieNfoReader movieNfoReader,
@@ -60,6 +65,7 @@ public class LocalMetadataProvider : ILocalMetadataProvider
         _musicVideoRepository = musicVideoRepository;
         _otherVideoRepository = otherVideoRepository;
         _songRepository = songRepository;
+        _imageRepository = imageRepository;
         _fallbackMetadataProvider = fallbackMetadataProvider;
         _localFileSystem = localFileSystem;
         _movieNfoReader = movieNfoReader;
@@ -193,15 +199,26 @@ public class LocalMetadataProvider : ILocalMetadataProvider
         return await RefreshFallbackMetadata(otherVideo);
     }
 
-    public async Task<bool> RefreshTagMetadata(Song song, string ffprobePath)
+    public async Task<bool> RefreshTagMetadata(Song song)
     {
-        Option<SongMetadata> maybeMetadata = await LoadSongMetadata(song, ffprobePath);
+        Option<SongMetadata> maybeMetadata = LoadSongMetadata(song);
         foreach (SongMetadata metadata in maybeMetadata)
         {
             return await ApplyMetadataUpdate(song, metadata);
         }
 
         return await RefreshFallbackMetadata(song);
+    }
+
+    public async Task<bool> RefreshTagMetadata(Image image, double? durationSeconds)
+    {
+        Option<ImageMetadata> maybeMetadata = LoadImageMetadata(image, durationSeconds);
+        foreach (ImageMetadata metadata in maybeMetadata)
+        {
+            return await ApplyMetadataUpdate(image, metadata);
+        }
+
+        return await RefreshFallbackMetadata(image);
     }
 
     public Task<bool> RefreshFallbackMetadata(Movie movie) =>
@@ -230,6 +247,17 @@ public class LocalMetadataProvider : ILocalMetadataProvider
         foreach (SongMetadata metadata in maybeMetadata)
         {
             return await ApplyMetadataUpdate(song, metadata);
+        }
+
+        return false;
+    }
+
+    public async Task<bool> RefreshFallbackMetadata(Image image)
+    {
+        Option<ImageMetadata> maybeMetadata = _fallbackMetadataProvider.GetFallbackMetadata(image);
+        foreach (ImageMetadata metadata in maybeMetadata)
+        {
+            return await ApplyMetadataUpdate(image, metadata);
         }
 
         return false;
@@ -293,19 +321,17 @@ public class LocalMetadataProvider : ILocalMetadataProvider
         }
     }
 
-    private async Task<Option<SongMetadata>> LoadSongMetadata(Song song, string ffprobePath)
+    private Option<SongMetadata> LoadSongMetadata(Song song)
     {
         string path = song.GetHeadVersion().MediaFiles.Head().Path;
 
         try
         {
-            Either<BaseError, Dictionary<string, string>> maybeTags =
-                await _localStatisticsProvider.GetSongTags(ffprobePath, song);
+            Either<BaseError, List<SongTag>> maybeTags = _localStatisticsProvider.GetSongTags(song);
 
-            foreach (Dictionary<string, string> tags in maybeTags.RightToSeq())
+            foreach (List<SongTag> tags in maybeTags.RightToSeq())
             {
-                Option<SongMetadata> maybeFallbackMetadata =
-                    _fallbackMetadataProvider.GetFallbackMetadata(song);
+                Option<SongMetadata> maybeFallbackMetadata = _fallbackMetadataProvider.GetFallbackMetadata(song);
 
                 var result = new SongMetadata
                 {
@@ -313,46 +339,42 @@ public class LocalMetadataProvider : ILocalMetadataProvider
                     DateAdded = DateTime.UtcNow,
                     DateUpdated = File.GetLastWriteTimeUtc(path),
 
-                    Artwork = new List<Artwork>(),
-                    Actors = new List<Actor>(),
-                    Genres = new List<Genre>(),
-                    Studios = new List<Studio>(),
-                    Tags = new List<Tag>()
+                    Artists = [],
+                    AlbumArtists = [],
+
+                    Artwork = [],
+                    Actors = [],
+                    Genres = [],
+                    Studios = [],
+                    Tags = []
                 };
 
-                if (tags.TryGetValue(MetadataSongTag.Album, out string? album))
+                foreach (SongTag tag in tags)
                 {
-                    result.Album = album;
-                }
-
-                if (tags.TryGetValue(MetadataSongTag.Artist, out string? artist))
-                {
-                    result.Artist = artist;
-                }
-
-                if (tags.TryGetValue(MetadataSongTag.AlbumArtist, out string? albumArtist))
-                {
-                    result.AlbumArtist = albumArtist;
-                }
-
-                if (tags.TryGetValue(MetadataSongTag.Date, out string? date))
-                {
-                    result.Date = date;
-                }
-
-                if (tags.TryGetValue(MetadataSongTag.Genre, out string? genre))
-                {
-                    result.Genres.AddRange(SplitGenres(genre).Map(n => new Genre { Name = n }));
-                }
-
-                if (tags.TryGetValue(MetadataSongTag.Title, out string? title))
-                {
-                    result.Title = title;
-                }
-
-                if (tags.TryGetValue(MetadataSongTag.Track, out string? track))
-                {
-                    result.Track = track;
+                    switch (tag.Tag)
+                    {
+                        case MetadataSongTag.Album:
+                            result.Album = tag.Value;
+                            break;
+                        case MetadataSongTag.Artist:
+                            result.Artists.Add(tag.Value);
+                            break;
+                        case MetadataSongTag.AlbumArtist:
+                            result.AlbumArtists.Add(tag.Value);
+                            break;
+                        case MetadataSongTag.Genre:
+                            result.Genres.Add(new Genre { Name = tag.Value });
+                            break;
+                        case MetadataSongTag.Title:
+                            result.Title = tag.Value;
+                            break;
+                        case MetadataSongTag.Track:
+                            result.Track = tag.Value;
+                            break;
+                        case MetadataSongTag.Comment:
+                            result.Comment = tag.Value;
+                            break;
+                    }
                 }
 
                 foreach (SongMetadata fallbackMetadata in maybeFallbackMetadata)
@@ -375,6 +397,74 @@ public class LocalMetadataProvider : ILocalMetadataProvider
             }
 
             return Option<SongMetadata>.None;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogInformation(ex, "Failed to read embedded song metadata from {Path}", path);
+            _client.Notify(ex);
+            return None;
+        }
+    }
+
+    private Option<ImageMetadata> LoadImageMetadata(Image image, double? durationSeconds)
+    {
+        string path = image.GetHeadVersion().MediaFiles.Head().Path;
+
+        try
+        {
+            Either<BaseError, List<SongTag>> maybeTags = _localStatisticsProvider.GetSongTags(image);
+
+            foreach (List<SongTag> tags in maybeTags.RightToSeq())
+            {
+                Option<ImageMetadata> maybeFallbackMetadata = _fallbackMetadataProvider.GetFallbackMetadata(image);
+
+                var result = new ImageMetadata
+                {
+                    MetadataKind = MetadataKind.Embedded,
+                    DateAdded = DateTime.UtcNow,
+                    DateUpdated = File.GetLastWriteTimeUtc(path),
+                    DurationSeconds = durationSeconds,
+
+                    Artwork = [],
+                    Actors = [],
+                    Genres = [],
+                    Studios = [],
+                    Tags = []
+                };
+
+                foreach (SongTag tag in tags)
+                {
+                    switch (tag.Tag)
+                    {
+                        case MetadataSongTag.Genre:
+                            result.Genres.Add(new Genre { Name = tag.Value });
+                            break;
+                        case MetadataSongTag.Title:
+                            result.Title = tag.Value;
+                            break;
+                    }
+                }
+
+                foreach (ImageMetadata fallbackMetadata in maybeFallbackMetadata)
+                {
+                    if (string.IsNullOrWhiteSpace(result.Title))
+                    {
+                        result.Title = fallbackMetadata.Title;
+                    }
+
+                    result.OriginalTitle = fallbackMetadata.OriginalTitle;
+
+                    // preserve folder tagging
+                    foreach (Tag tag in fallbackMetadata.Tags)
+                    {
+                        result.Tags.Add(tag);
+                    }
+                }
+
+                return result;
+            }
+
+            return Option<ImageMetadata>.None;
         }
         catch (Exception ex)
         {
@@ -978,11 +1068,11 @@ public class LocalMetadataProvider : ILocalMetadataProvider
         foreach (SongMetadata existing in maybeMetadata)
         {
             existing.Title = metadata.Title;
-            existing.Artist = metadata.Artist;
-            existing.AlbumArtist = metadata.AlbumArtist;
+            existing.Artists = metadata.Artists;
+            existing.AlbumArtists = metadata.AlbumArtists;
             existing.Album = metadata.Album;
-            existing.Date = metadata.Date;
             existing.Track = metadata.Track;
+            existing.Comment = metadata.Comment;
 
             if (existing.DateAdded == SystemTime.MinValueUtc)
             {
@@ -1012,6 +1102,49 @@ public class LocalMetadataProvider : ILocalMetadataProvider
             : metadata.SortTitle;
         metadata.SongId = song.Id;
         song.SongMetadata = new List<SongMetadata> { metadata };
+
+        return await _metadataRepository.Add(metadata);
+    }
+
+    private async Task<bool> ApplyMetadataUpdate(Image image, ImageMetadata metadata)
+    {
+        Option<ImageMetadata> maybeMetadata = Optional(image.ImageMetadata).Flatten().HeadOrNone();
+        foreach (ImageMetadata existing in maybeMetadata)
+        {
+            existing.DurationSeconds = metadata.DurationSeconds;
+            existing.Title = metadata.Title;
+
+            if (existing.DateAdded == SystemTime.MinValueUtc)
+            {
+                existing.DateAdded = metadata.DateAdded;
+            }
+
+            existing.DateUpdated = metadata.DateUpdated;
+            existing.MetadataKind = metadata.MetadataKind;
+            existing.OriginalTitle = metadata.OriginalTitle;
+            existing.ReleaseDate = metadata.ReleaseDate;
+            existing.Year = metadata.Year;
+            existing.SortTitle = string.IsNullOrWhiteSpace(metadata.SortTitle)
+                ? SortTitle.GetSortTitle(metadata.Title)
+                : metadata.SortTitle;
+            existing.OriginalTitle = metadata.OriginalTitle;
+
+            bool updated = await UpdateMetadataCollections(
+                existing,
+                metadata,
+                (_, _) => Task.FromResult(false),
+                _imageRepository.AddTag,
+                (_, _) => Task.FromResult(false),
+                (_, _) => Task.FromResult(false));
+
+            return await _metadataRepository.Update(existing) || updated;
+        }
+
+        metadata.SortTitle = string.IsNullOrWhiteSpace(metadata.SortTitle)
+            ? SortTitle.GetSortTitle(metadata.Title)
+            : metadata.SortTitle;
+        metadata.ImageId = image.Id;
+        image.ImageMetadata = [metadata];
 
         return await _metadataRepository.Add(metadata);
     }
@@ -1474,8 +1607,7 @@ public class LocalMetadataProvider : ILocalMetadataProvider
 
     private static IEnumerable<string> SplitGenres(string genre)
     {
-        char[] delimiters = new[] { '/', '|', ';', '\\' }
-            .Filter(d => genre.IndexOf(d, StringComparison.OrdinalIgnoreCase) != -1)
+        char[] delimiters = GenreSeparators.Filter(s => genre.Contains(s, StringComparison.OrdinalIgnoreCase))
             .DefaultIfEmpty(',')
             .ToArray();
 

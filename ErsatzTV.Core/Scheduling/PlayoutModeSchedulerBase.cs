@@ -179,6 +179,11 @@ public abstract class PlayoutModeSchedulerBase<T> : IPlayoutModeScheduler<T> whe
 
     protected static TimeSpan DurationForMediaItem(MediaItem mediaItem)
     {
+        if (mediaItem is Image image)
+        {
+            return TimeSpan.FromSeconds(image.ImageMetadata.Head().DurationSeconds ?? Image.DefaultSeconds);
+        }
+
         MediaVersion version = mediaItem.GetHeadVersion();
         return version.Duration;
     }
@@ -221,6 +226,17 @@ public abstract class PlayoutModeSchedulerBase<T> : IPlayoutModeScheduler<T> whe
         if (allFiller.Count(f => f.FillerMode == FillerMode.Pad && f.PadToNearestMinute.HasValue) > 1)
         {
             Logger.LogError("Multiple pad-to-nearest-minute values are invalid; no filler will be used");
+            return new List<PlayoutItem> { playoutItem };
+        }
+
+        // missing pad-to-nearest-minute value is invalid; use no filler
+        FillerPreset invalidPadFiller = allFiller
+            .FirstOrDefault(f => f.FillerMode == FillerMode.Pad && f.PadToNearestMinute.HasValue == false);
+        if (invalidPadFiller is not null)
+        {
+            Logger.LogError(
+                "Pad filler ({Filler}) without pad-to-nearest-minute value is invalid; no filler will be used",
+                invalidPadFiller.Name);
             return new List<PlayoutItem> { playoutItem };
         }
 

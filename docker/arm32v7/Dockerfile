@@ -1,20 +1,11 @@
-﻿FROM mcr.microsoft.com/dotnet/aspnet:7.0-jammy-arm32v7 AS dotnet-runtime
+﻿FROM mcr.microsoft.com/dotnet/aspnet:8.0-jammy-arm32v7 AS dotnet-runtime
 
-FROM jasongdove/ersatztv-ffmpeg:6.0-arm AS runtime-base
+FROM jasongdove/ersatztv-ffmpeg:7.0-arm AS runtime-base
 COPY --from=dotnet-runtime /usr/share/dotnet /usr/share/dotnet
-RUN apt-get update && DEBIAN_FRONTEND="noninteractive" apt-get install -y libicu-dev \
-    tzdata \
-    fontconfig \
-    fonts-dejavu \
-    libgdiplus
 
 # https://hub.docker.com/_/microsoft-dotnet
-FROM mcr.microsoft.com/dotnet/sdk:7.0-jammy-amd64 AS build
+FROM mcr.microsoft.com/dotnet/sdk:8.0-jammy-amd64 AS build
 RUN apt-get update && apt-get install -y ca-certificates gnupg
-RUN mkdir -p /etc/apt/keyrings
-RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
-RUN echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_16.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list
-RUN apt-get update && apt-get install -y nodejs
 WORKDIR /source
 
 # copy csproj and restore as distinct layers
@@ -23,7 +14,6 @@ COPY nuget.config .
 COPY lib/nuget/* ./lib/nuget/
 COPY artwork/* ./artwork/
 COPY ErsatzTV/*.csproj ./ErsatzTV/
-COPY ErsatzTV/client-app/package*.json ./ErsatzTV/client-app/
 COPY ErsatzTV.Application/*.csproj ./ErsatzTV.Application/
 COPY ErsatzTV.Core/*.csproj ./ErsatzTV.Core/
 COPY ErsatzTV.FFmpeg/*.csproj ./ErsatzTV.FFmpeg/
@@ -44,10 +34,10 @@ COPY ErsatzTV.Infrastructure.MySql/. ./ErsatzTV.Infrastructure.MySql/
 COPY ErsatzTV.Scanner/. ./ErsatzTV.Scanner/
 WORKDIR /source/ErsatzTV.Scanner
 ARG INFO_VERSION="unknown"
-RUN dotnet publish ErsatzTV.Scanner.csproj --framework net7.0 -c release -o /app --runtime linux-arm --no-self-contained --no-restore -p:DebugType=Embedded -p:PublishSingleFile=false -p:PublishTrimmed=false -p:InformationalVersion=${INFO_VERSION}
+RUN dotnet publish ErsatzTV.Scanner.csproj --framework net8.0 -c release -o /app --runtime linux-arm --no-self-contained --no-restore -p:DebugType=Embedded -p:PublishSingleFile=false -p:PublishTrimmed=false -p:InformationalVersion=${INFO_VERSION}
 WORKDIR /source/ErsatzTV
 RUN sed -i '/Scanner/d' ErsatzTV.csproj
-RUN dotnet publish ErsatzTV.csproj --framework net7.0 -c release -o /app --runtime linux-arm --no-self-contained --no-restore -p:DebugType=Embedded -p:PublishSingleFile=false -p:PublishTrimmed=false -p:InformationalVersion=${INFO_VERSION}
+RUN dotnet publish ErsatzTV.csproj --framework net8.0 -c release -o /app --runtime linux-arm --no-self-contained --no-restore -p:DebugType=Embedded -p:PublishSingleFile=false -p:PublishTrimmed=false -p:InformationalVersion=${INFO_VERSION}
           
 # final stage/image
 FROM runtime-base

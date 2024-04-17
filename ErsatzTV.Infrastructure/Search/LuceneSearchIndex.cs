@@ -11,12 +11,8 @@ using ErsatzTV.FFmpeg;
 using ErsatzTV.FFmpeg.Format;
 using LanguageExt.UnsafeValueAccess;
 using Lucene.Net.Analysis;
-using Lucene.Net.Analysis.Core;
-using Lucene.Net.Analysis.Miscellaneous;
-using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Documents;
 using Lucene.Net.Index;
-using Lucene.Net.QueryParsers.Classic;
 using Lucene.Net.Sandbox.Queries;
 using Lucene.Net.Search;
 using Lucene.Net.Store;
@@ -30,7 +26,7 @@ namespace ErsatzTV.Infrastructure.Search;
 
 public sealed class LuceneSearchIndex : ISearchIndex
 {
-    private const LuceneVersion AppLuceneVersion = LuceneVersion.LUCENE_48;
+    internal const LuceneVersion AppLuceneVersion = LuceneVersion.LUCENE_48;
 
     internal const string IdField = "id";
     internal const string TypeField = "type";
@@ -41,11 +37,14 @@ public sealed class LuceneSearchIndex : ISearchIndex
     internal const string PlotField = "plot";
     internal const string LibraryNameField = "library_name";
     internal const string LibraryIdField = "library_id";
+    internal const string LibraryFolderIdField = "library_folder_id";
     internal const string TitleAndYearField = "title_and_year";
     internal const string JumpLetterField = "jump_letter";
     internal const string StudioField = "studio";
     internal const string LanguageField = "language";
     internal const string LanguageTagField = "language_tag";
+    internal const string SubLanguageField = "sub_language";
+    internal const string SubLanguageTagField = "sub_language_tag";
     internal const string StyleField = "style";
     internal const string MoodField = "mood";
     internal const string ActorField = "actor";
@@ -60,6 +59,8 @@ public sealed class LuceneSearchIndex : ISearchIndex
     internal const string ShowTitleField = "show_title";
     internal const string ShowGenreField = "show_genre";
     internal const string ShowTagField = "show_tag";
+    internal const string ShowStudioField = "show_studio";
+    internal const string ShowContentRatingField = "show_content_rating";
     internal const string MetadataKindField = "metadata_kind";
     internal const string VideoCodecField = "video_codec";
     internal const string VideoDynamicRange = "video_dynamic_range";
@@ -82,6 +83,7 @@ public sealed class LuceneSearchIndex : ISearchIndex
     public const string EpisodeType = "episode";
     public const string OtherVideoType = "other_video";
     public const string SongType = "song";
+    public const string ImageType = "image";
     private readonly string _cleanShutdownPath;
 
     private readonly List<CultureInfo> _cultureInfos;
@@ -108,7 +110,7 @@ public sealed class LuceneSearchIndex : ISearchIndex
         return Task.FromResult(directoryExists && fileExists);
     }
 
-    public int Version => 37;
+    public int Version => 43;
 
     public async Task<bool> Initialize(
         ILocalFileSystem localFileSystem,
@@ -132,7 +134,7 @@ public sealed class LuceneSearchIndex : ISearchIndex
             }
 
             _directory = FSDirectory.Open(FileSystemLayout.SearchIndexFolder);
-            var analyzer = new StandardAnalyzer(AppLuceneVersion);
+            Analyzer analyzer = SearchQueryParser.AnalyzerWrapper();
             var indexConfig = new IndexWriterConfig(AppLuceneVersion, analyzer)
                 { OpenMode = OpenMode.CREATE_OR_APPEND };
             _writer = new IndexWriter(_directory, indexConfig);
@@ -175,6 +177,9 @@ public sealed class LuceneSearchIndex : ISearchIndex
                 case Song song:
                     await UpdateSong(searchRepository, song);
                     break;
+                case Image image:
+                    await UpdateImage(searchRepository, image);
+                    break;
             }
         }
 
@@ -211,7 +216,7 @@ public sealed class LuceneSearchIndex : ISearchIndex
         using DirectoryReader reader = _writer.GetReader(true);
         var searcher = new IndexSearcher(reader);
         int hitsLimit = limit == 0 ? searcher.IndexReader.MaxDoc : skip + limit;
-        Query parsedQuery = ParseQuery(query);
+        Query parsedQuery = SearchQueryParser.ParseQuery(query);
         // TODO: figure out if this is actually needed
         // var filter = new DuplicateFilter(TitleAndYearField);
         var sort = new Sort(new SortField(SortTitleField, SortFieldType.STRING));
@@ -286,7 +291,7 @@ public sealed class LuceneSearchIndex : ISearchIndex
         {
             using (var d = FSDirectory.Open(folder))
             {
-                using (var analyzer = new StandardAnalyzer(AppLuceneVersion))
+                using (Analyzer analyzer = SearchQueryParser.AnalyzerWrapper())
                 {
                     var indexConfig = new IndexWriterConfig(AppLuceneVersion, analyzer)
                         { OpenMode = OpenMode.CREATE_OR_APPEND };
@@ -336,6 +341,9 @@ public sealed class LuceneSearchIndex : ISearchIndex
                 break;
             case Song song:
                 await UpdateSong(searchRepository, song);
+                break;
+            case Image image:
+                await UpdateImage(searchRepository, image);
                 break;
         }
     }
@@ -500,7 +508,7 @@ public sealed class LuceneSearchIndex : ISearchIndex
     private async Task AddLanguages(
         ISearchRepository searchRepository,
         Document doc,
-        IEnumerable<MediaVersion> mediaVersions)
+        ICollection<MediaVersion> mediaVersions)
     {
         var mediaCodes = mediaVersions
             .Map(mv => mv.Streams.Filter(ms => ms.MediaStreamKind == MediaStreamKind.Audio).Map(ms => ms.Language))
@@ -510,6 +518,18 @@ public sealed class LuceneSearchIndex : ISearchIndex
             .ToList();
 
         await AddLanguages(searchRepository, doc, mediaCodes);
+
+        var subMediaCodes = mediaVersions
+            .Map(
+                mv => mv.Streams
+                    .Filter(ms => ms.MediaStreamKind is MediaStreamKind.Subtitle or MediaStreamKind.ExternalSubtitle)
+                    .Map(ms => ms.Language))
+            .Flatten()
+            .Filter(c => !string.IsNullOrWhiteSpace(c))
+            .Distinct()
+            .ToList();
+
+        await AddSubLanguages(searchRepository, doc, subMediaCodes);
     }
 
     private async Task AddLanguages(ISearchRepository searchRepository, Document doc, List<string> mediaCodes)
@@ -518,7 +538,7 @@ public sealed class LuceneSearchIndex : ISearchIndex
         {
             doc.Add(new TextField(LanguageTagField, code, Field.Store.NO));
         }
-        
+
         var englishNames = new System.Collections.Generic.HashSet<string>();
         foreach (string code in await searchRepository.GetAllLanguageCodes(mediaCodes))
         {
@@ -533,6 +553,30 @@ public sealed class LuceneSearchIndex : ISearchIndex
         foreach (string englishName in englishNames)
         {
             doc.Add(new TextField(LanguageField, englishName, Field.Store.NO));
+        }
+    }
+
+    private async Task AddSubLanguages(ISearchRepository searchRepository, Document doc, List<string> mediaCodes)
+    {
+        foreach (string code in mediaCodes.Where(c => !string.IsNullOrWhiteSpace(c)).Distinct())
+        {
+            doc.Add(new TextField(SubLanguageTagField, code, Field.Store.NO));
+        }
+
+        var englishNames = new System.Collections.Generic.HashSet<string>();
+        foreach (string code in await searchRepository.GetAllLanguageCodes(mediaCodes))
+        {
+            Option<CultureInfo> maybeCultureInfo = _cultureInfos.Find(
+                ci => string.Equals(ci.ThreeLetterISOLanguageName, code, StringComparison.OrdinalIgnoreCase));
+            foreach (CultureInfo cultureInfo in maybeCultureInfo)
+            {
+                englishNames.Add(cultureInfo.EnglishName);
+            }
+        }
+
+        foreach (string englishName in englishNames)
+        {
+            doc.Add(new TextField(SubLanguageField, englishName, Field.Store.NO));
         }
     }
 
@@ -564,6 +608,9 @@ public sealed class LuceneSearchIndex : ISearchIndex
 
                 List<string> languages = await searchRepository.GetLanguagesForShow(show);
                 await AddLanguages(searchRepository, doc, languages);
+
+                List<string> subLanguages = await searchRepository.GetSubLanguagesForShow(show);
+                await AddSubLanguages(searchRepository, doc, subLanguages);
 
                 if (!string.IsNullOrWhiteSpace(metadata.ContentRating))
                 {
@@ -681,8 +728,25 @@ public sealed class LuceneSearchIndex : ISearchIndex
                     doc.Add(new TextField(ShowTagField, tag.Name, Field.Store.NO));
                 }
 
+                foreach (Studio studio in showMetadata.Studios)
+                {
+                    doc.Add(new TextField(ShowStudioField, studio.Name, Field.Store.NO));
+                }
+                
+                if (!string.IsNullOrWhiteSpace(showMetadata.ContentRating))
+                {
+                    foreach (string contentRating in (showMetadata.ContentRating ?? string.Empty).Split("/")
+                             .Map(x => x.Trim()).Where(x => !string.IsNullOrWhiteSpace(x)))
+                    {
+                        doc.Add(new StringField(ShowContentRatingField, contentRating, Field.Store.NO));
+                    }
+                }
+
                 List<string> languages = await searchRepository.GetLanguagesForSeason(season);
                 await AddLanguages(searchRepository, doc, languages);
+
+                List<string> subLanguages = await searchRepository.GetSubLanguagesForSeason(season);
+                await AddSubLanguages(searchRepository, doc, subLanguages);
 
                 if (!string.IsNullOrWhiteSpace(showMetadata.ContentRating))
                 {
@@ -762,6 +826,9 @@ public sealed class LuceneSearchIndex : ISearchIndex
                 List<string> languages = await searchRepository.GetLanguagesForArtist(artist);
                 await AddLanguages(searchRepository, doc, languages);
 
+                List<string> subLanguages = await searchRepository.GetSubLanguagesForArtist(artist);
+                await AddSubLanguages(searchRepository, doc, subLanguages);
+
                 doc.Add(
                     new StringField(
                         AddedDateField,
@@ -808,8 +875,11 @@ public sealed class LuceneSearchIndex : ISearchIndex
                 {
                     new StringField(IdField, musicVideo.Id.ToString(CultureInfo.InvariantCulture), Field.Store.YES),
                     new StringField(TypeField, MusicVideoType, Field.Store.YES),
-                    new TextField(TitleField, metadata.Title, Field.Store.NO),
-                    new StringField(SortTitleField, metadata.SortTitle.ToLowerInvariant(), Field.Store.NO),
+                    new TextField(TitleField, metadata.Title ?? string.Empty, Field.Store.NO),
+                    new StringField(
+                        SortTitleField,
+                        (metadata.SortTitle ?? string.Empty).ToLowerInvariant(),
+                        Field.Store.NO),
                     new TextField(LibraryNameField, musicVideo.LibraryPath.Library.Name, Field.Store.NO),
                     new StringField(
                         LibraryIdField,
@@ -948,8 +1018,22 @@ public sealed class LuceneSearchIndex : ISearchIndex
                     {
                         doc.Add(new TextField(ShowTagField, tag.Name, Field.Store.NO));
                     }
-                }
 
+                    foreach (Studio studio in showMetadata.Studios)
+                    {
+                        doc.Add(new TextField(ShowStudioField, studio.Name, Field.Store.NO));
+                    }
+                    
+                    if (!string.IsNullOrWhiteSpace(showMetadata.ContentRating))
+                    {
+                        foreach (string contentRating in (showMetadata.ContentRating ?? string.Empty).Split("/")
+                                 .Map(x => x.Trim()).Where(x => !string.IsNullOrWhiteSpace(x)))
+                        {
+                            doc.Add(new StringField(ShowContentRatingField, contentRating, Field.Store.NO));
+                        }
+                    }
+                }
+                
                 if (!string.IsNullOrWhiteSpace(metadata.Title))
                 {
                     doc.Add(new TextField(TitleField, metadata.Title, Field.Store.NO));
@@ -1177,14 +1261,14 @@ public sealed class LuceneSearchIndex : ISearchIndex
                     doc.Add(new TextField(AlbumField, metadata.Album, Field.Store.NO));
                 }
 
-                if (!string.IsNullOrWhiteSpace(metadata.Artist))
+                foreach (string artist in metadata.Artists)
                 {
-                    doc.Add(new TextField(ArtistField, metadata.Artist, Field.Store.NO));
+                    doc.Add(new TextField(ArtistField, artist, Field.Store.NO));
                 }
 
-                if (!string.IsNullOrWhiteSpace(metadata.AlbumArtist))
+                foreach (string albumArtist in metadata.AlbumArtists)
                 {
-                    doc.Add(new TextField(AlbumArtistField, metadata.AlbumArtist, Field.Store.NO));
+                    doc.Add(new TextField(AlbumArtistField, albumArtist, Field.Store.NO));
                 }
 
                 foreach (Tag tag in metadata.Tags)
@@ -1209,38 +1293,80 @@ public sealed class LuceneSearchIndex : ISearchIndex
         }
     }
 
+    private async Task UpdateImage(ISearchRepository searchRepository, Image image)
+    {
+        Option<ImageMetadata> maybeMetadata = image.ImageMetadata.HeadOrNone();
+        if (maybeMetadata.IsSome)
+        {
+            ImageMetadata metadata = maybeMetadata.ValueUnsafe();
+
+            try
+            {
+                var doc = new Document
+                {
+                    new StringField(IdField, image.Id.ToString(CultureInfo.InvariantCulture), Field.Store.YES),
+                    new StringField(TypeField, ImageType, Field.Store.YES),
+                    new TextField(TitleField, metadata.Title, Field.Store.NO),
+                    new StringField(SortTitleField, metadata.SortTitle.ToLowerInvariant(), Field.Store.NO),
+                    new TextField(LibraryNameField, image.LibraryPath.Library.Name, Field.Store.NO),
+                    new StringField(
+                        LibraryIdField,
+                        image.LibraryPath.Library.Id.ToString(CultureInfo.InvariantCulture),
+                        Field.Store.NO),
+                    new StringField(TitleAndYearField, GetTitleAndYear(metadata), Field.Store.NO),
+                    new StringField(JumpLetterField, GetJumpLetter(metadata), Field.Store.YES),
+                    new StringField(StateField, image.State.ToString(), Field.Store.NO),
+                    new TextField(MetadataKindField, metadata.MetadataKind.ToString(), Field.Store.NO)
+                };
+
+                IEnumerable<int> libraryFolderIds = image.MediaVersions
+                    .SelectMany(mv => mv.MediaFiles)
+                    .SelectMany(mf => Optional(mf.LibraryFolderId));
+
+                foreach (int libraryFolderId in libraryFolderIds)
+                {
+                    doc.Add(
+                        new StringField(
+                            LibraryFolderIdField,
+                            libraryFolderId.ToString(CultureInfo.InvariantCulture),
+                            Field.Store.NO));
+                }
+
+                await AddLanguages(searchRepository, doc, image.MediaVersions);
+
+                AddStatistics(doc, image.MediaVersions);
+
+                doc.Add(
+                    new StringField(
+                        AddedDateField,
+                        metadata.DateAdded.ToString("yyyyMMdd", CultureInfo.InvariantCulture),
+                        Field.Store.NO));
+
+                foreach (Tag tag in metadata.Tags)
+                {
+                    doc.Add(new TextField(TagField, tag.Name, Field.Store.NO));
+                }
+
+                foreach (Genre genre in metadata.Genres)
+                {
+                    doc.Add(new TextField(GenreField, genre.Name, Field.Store.NO));
+                }
+
+                AddMetadataGuids(metadata, doc);
+
+                _writer.UpdateDocument(new Term(IdField, image.Id.ToString(CultureInfo.InvariantCulture)), doc);
+            }
+            catch (Exception ex)
+            {
+                metadata.Image = null;
+                _logger.LogWarning(ex, "Error indexing image with metadata {@Metadata}", metadata);
+            }
+        }
+    }
+
     private static SearchItem ProjectToSearchItem(Document doc) => new(
         doc.Get(TypeField, CultureInfo.InvariantCulture),
         Convert.ToInt32(doc.Get(IdField, CultureInfo.InvariantCulture), CultureInfo.InvariantCulture));
-
-    internal static Query ParseQuery(string query)
-    {
-        using var analyzer = new StandardAnalyzer(AppLuceneVersion);
-        var customAnalyzers = new Dictionary<string, Analyzer>
-        {
-            { ContentRatingField, new KeywordAnalyzer() },
-            { StateField, new KeywordAnalyzer() }
-        };
-        using var analyzerWrapper = new PerFieldAnalyzerWrapper(analyzer, customAnalyzers);
-        QueryParser parser = new CustomMultiFieldQueryParser(AppLuceneVersion, new[] { TitleField }, analyzerWrapper);
-        parser.AllowLeadingWildcard = true;
-        return ParseQuery(query, parser);
-    }
-
-    private static Query ParseQuery(string searchQuery, QueryParser parser)
-    {
-        Query query;
-        try
-        {
-            query = parser.Parse(searchQuery.Trim());
-        }
-        catch (ParseException)
-        {
-            query = parser.Parse(QueryParserBase.Escape(searchQuery.Trim()));
-        }
-
-        return query;
-    }
 
     private static void AddStatistics(Document doc, List<MediaVersion> mediaVersions)
     {
@@ -1282,7 +1408,7 @@ public sealed class LuceneSearchIndex : ISearchIndex
         }
     }
 
-    private static void AddMetadataGuids(Metadata metadata, Document doc)
+    private static void AddMetadataGuids(Core.Domain.Metadata metadata, Document doc)
     {
         foreach (MetadataGuid guid in metadata.Guids)
         {
@@ -1295,7 +1421,7 @@ public sealed class LuceneSearchIndex : ISearchIndex
     }
 
     // this is used for filtering duplicate search results
-    internal static string GetTitleAndYear(Metadata metadata) =>
+    internal static string GetTitleAndYear(Core.Domain.Metadata metadata) =>
         metadata switch
         {
             EpisodeMetadata em =>
@@ -1304,6 +1430,7 @@ public sealed class LuceneSearchIndex : ISearchIndex
             OtherVideoMetadata ovm => $"{OtherVideoTitle(ovm).Replace(' ', '_')}_{ovm.Year}_{ovm.OtherVideo.State}"
                 .ToLowerInvariant(),
             SongMetadata sm => $"{Title(sm)}_{sm.Year}_{sm.Song.State}".ToLowerInvariant(),
+            ImageMetadata im => $"{Title(im)}_{im.Year}_{im.Image.State}".ToLowerInvariant(),
             MovieMetadata mm => $"{Title(mm)}_{mm.Year}_{mm.Movie.State}".ToLowerInvariant(),
             ArtistMetadata am => $"{Title(am)}_{am.Year}_{am.Artist.State}".ToLowerInvariant(),
             MusicVideoMetadata mvm => $"{Title(mvm)}_{mvm.Year}_{mvm.MusicVideo.State}".ToLowerInvariant(),
@@ -1312,17 +1439,21 @@ public sealed class LuceneSearchIndex : ISearchIndex
             _ => $"{Title(metadata)}_{metadata.Year}".ToLowerInvariant()
         };
 
-    private static string Title(Metadata metadata) =>
+    private static string Title(Core.Domain.Metadata metadata) =>
         (metadata.Title ?? string.Empty).Replace(' ', '_');
 
-    internal static string GetJumpLetter(Metadata metadata)
+    internal static string GetJumpLetter(Core.Domain.Metadata metadata)
     {
-        char c = (metadata.SortTitle ?? " ").ToLowerInvariant().Head();
-        return c switch
+        foreach (char c in (metadata.SortTitle ?? " ").ToLowerInvariant().HeadOrNone())
         {
-            (>= 'a' and <= 'z') => c.ToString(),
-            _ => "#"
-        };
+            return c switch
+            {
+                >= 'a' and <= 'z' => c.ToString(),
+                _ => "#"
+            };
+        }
+
+        return "#";
     }
 
     private static string OtherVideoTitle(OtherVideoMetadata ovm) =>

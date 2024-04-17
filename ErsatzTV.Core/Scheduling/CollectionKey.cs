@@ -1,5 +1,6 @@
 ﻿using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Domain.Filler;
+using ErsatzTV.Core.Domain.Scheduling;
 
 namespace ErsatzTV.Core.Scheduling;
 
@@ -10,8 +11,9 @@ public class CollectionKey : Record<CollectionKey>
     public int? MultiCollectionId { get; set; }
     public int? SmartCollectionId { get; set; }
     public int? MediaItemId { get; set; }
+    public string FakeCollectionKey { get; set; }
 
-    public static CollectionKey ForScheduleItem(ProgramScheduleItem item) =>
+    public static CollectionKey ForBlockItem(BlockItem item) =>
         item.CollectionType switch
         {
             ProgramScheduleItemCollectionType.Collection => new CollectionKey
@@ -43,6 +45,57 @@ public class CollectionKey : Record<CollectionKey>
             {
                 CollectionType = item.CollectionType,
                 SmartCollectionId = item.SmartCollectionId
+            },
+            ProgramScheduleItemCollectionType.FakeCollection => new CollectionKey
+            {
+                CollectionType = item.CollectionType
+            },
+            _ => throw new ArgumentOutOfRangeException(nameof(item))
+        };
+
+    public static CollectionKey ForScheduleItem(ProgramScheduleItem item) =>
+        item.CollectionType switch
+        {
+            ProgramScheduleItemCollectionType.Collection => new CollectionKey
+            {
+                CollectionType = item.CollectionType,
+                CollectionId = item.CollectionId,
+                FakeCollectionKey = item.FakeCollectionKey
+            },
+            ProgramScheduleItemCollectionType.TelevisionShow => new CollectionKey
+            {
+                CollectionType = item.CollectionType,
+                MediaItemId = item.MediaItemId,
+                FakeCollectionKey = item.FakeCollectionKey
+            },
+            ProgramScheduleItemCollectionType.TelevisionSeason => new CollectionKey
+            {
+                CollectionType = item.CollectionType,
+                MediaItemId = item.MediaItemId,
+                FakeCollectionKey = item.FakeCollectionKey
+            },
+            ProgramScheduleItemCollectionType.Artist => new CollectionKey
+            {
+                CollectionType = item.CollectionType,
+                MediaItemId = item.MediaItemId,
+                FakeCollectionKey = item.FakeCollectionKey
+            },
+            ProgramScheduleItemCollectionType.MultiCollection => new CollectionKey
+            {
+                CollectionType = item.CollectionType,
+                MultiCollectionId = item.MultiCollectionId,
+                FakeCollectionKey = item.FakeCollectionKey
+            },
+            ProgramScheduleItemCollectionType.SmartCollection => new CollectionKey
+            {
+                CollectionType = item.CollectionType,
+                SmartCollectionId = item.SmartCollectionId,
+                FakeCollectionKey = item.FakeCollectionKey
+            },
+            ProgramScheduleItemCollectionType.FakeCollection => new CollectionKey
+            {
+                CollectionType = item.CollectionType,
+                FakeCollectionKey = item.FakeCollectionKey
             },
             _ => throw new ArgumentOutOfRangeException(nameof(item))
         };

@@ -31,7 +31,11 @@ public class GetMediaItemInfoHandler : IRequestHandler<GetMediaItemInfo, Either<
                 .Include(i => (i as Movie).MovieMetadata)
                 .ThenInclude(mv => mv.Subtitles)
                 .Include(i => (i as Movie).MediaVersions)
+                .ThenInclude(mv => mv.Chapters)
+                .Include(i => (i as Movie).MediaVersions)
                 .ThenInclude(mv => mv.Streams)
+                .Include(i => (i as Episode).MediaVersions)
+                .ThenInclude(mv => mv.Chapters)
                 .Include(i => (i as Episode).MediaVersions)
                 .ThenInclude(mv => mv.Streams)
                 .Include(i => (i as Episode).EpisodeMetadata)
@@ -59,17 +63,36 @@ public class GetMediaItemInfoHandler : IRequestHandler<GetMediaItemInfo, Either<
             _ => null
         };
 
+        var allStreams = version.Streams.OrderBy(s => s.Index).Map(Project).ToList();
+
         List<Subtitle> subtitles = mediaItem switch
         {
             Movie m => m.MovieMetadata.Map(mm => mm.Subtitles).Flatten().ToList(),
             Episode e => e.EpisodeMetadata.Map(mm => mm.Subtitles).Flatten().ToList(),
-            _ => new List<Subtitle>()
+            _ => []
         };
 
-        var allStreams = version.Streams.OrderBy(s => s.Index).Map(Project).ToList();
-
         // include external subtitles from local libraries
-        allStreams.AddRange(subtitles.Filter(s => s.SubtitleKind is SubtitleKind.Sidecar).Map(ProjectToStream));
+        if (mediaItem.LibraryPath.Library is LocalLibrary)
+        {
+            allStreams.AddRange(subtitles.Filter(s => s.SubtitleKind is SubtitleKind.Sidecar).Map(ProjectToStream));
+        }
+
+        // set extracted status and file name on each subtitle stream
+        foreach (MediaItemInfoStream subtitleStream in allStreams.Filter(s => s.Kind is MediaStreamKind.Subtitle))
+        {
+            foreach (Subtitle subtitle in subtitles.Filter(s => s.StreamIndex == subtitleStream.Index).HeadOrNone())
+            {
+                if (!subtitle.IsImage)
+                {
+                    subtitleStream.IsExtracted = subtitle.IsExtracted;
+                }
+
+                subtitleStream.FileName = string.IsNullOrWhiteSpace(subtitle.Path) ? null : subtitle.Path;
+            }
+        }
+
+        var allChapters = (version.Chapters ?? []).OrderBy(c => c.StartTime).Map(Project).ToList();
 
         return new MediaItemInfo(
             mediaItem.Id,
@@ -85,7 +108,8 @@ public class GetMediaItemInfoHandler : IRequestHandler<GetMediaItemInfo, Either<
             version.VideoScanKind,
             version.Width,
             version.Height,
-            allStreams);
+            allStreams,
+            allChapters);
     }
 
     private static MediaItemInfoStream Project(MediaStream mediaStream) =>
@@ -106,8 +130,7 @@ public class GetMediaItemInfoHandler : IRequestHandler<GetMediaItemInfo, Either<
             mediaStream.ColorTransfer,
             mediaStream.ColorPrimaries,
             mediaStream.BitsPerRawSample > 0 ? mediaStream.BitsPerRawSample : null,
-            mediaStream.FileName,
-            mediaStream.MimeType);
+            mediaStream.MimeType) { FileName = mediaStream.FileName };
 
     private static MediaItemInfoStream ProjectToStream(Subtitle subtitle) =>
         new(
@@ -127,6 +150,11 @@ public class GetMediaItemInfoHandler : IRequestHandler<GetMediaItemInfo, Either<
             null,
             null,
             null,
-            string.IsNullOrWhiteSpace(subtitle.Path) ? null : Path.GetFileName(subtitle.Path),
-            null);
+            null)
+        {
+            FileName = string.IsNullOrWhiteSpace(subtitle.Path) ? null : Path.GetFileName(subtitle.Path)
+        };
+
+    private static MediaItemInfoChapter Project(MediaChapter chapter) =>
+        new(chapter.Title, chapter.StartTime, chapter.EndTime);
 }

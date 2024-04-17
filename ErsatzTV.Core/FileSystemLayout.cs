@@ -15,6 +15,8 @@ public static class FileSystemLayout
             Environment.SpecialFolderOption.Create),
         "etv-transcode");
 
+    public static readonly string DataProtectionFolder = Path.Combine(AppDataFolder, "data-protection");
+
     public static readonly string LogsFolder = Path.Combine(AppDataFolder, "logs");
 
     public static readonly string DatabasePath = Path.Combine(AppDataFolder, "ersatztv.sqlite3");
@@ -51,6 +53,8 @@ public static class FileSystemLayout
     public static readonly string MusicVideoCreditsTemplatesFolder =
         Path.Combine(TemplatesFolder, "music-video-credits");
 
+    public static readonly string ChannelGuideTemplatesFolder = Path.Combine(TemplatesFolder, "channel-guide");
+
     public static readonly string ScriptsFolder = Path.Combine(AppDataFolder, "scripts");
 
     public static readonly string MultiEpisodeShuffleTemplatesFolder =
@@ -58,4 +62,12 @@ public static class FileSystemLayout
 
     public static readonly string AudioStreamSelectorScriptsFolder =
         Path.Combine(ScriptsFolder, "audio-stream-selector");
+    
+    public static readonly string MacOsOldAppDataFolder = Path.Combine(
+        Environment.GetEnvironmentVariable("HOME") ?? string.Empty,
+        ".local",
+        "share",
+        "ersatztv");
+
+    public static readonly string MacOsOldDatabasePath = Path.Combine(MacOsOldAppDataFolder, "ersatztv.sqlite3");
 }

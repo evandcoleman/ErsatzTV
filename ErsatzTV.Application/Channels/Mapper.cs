@@ -34,6 +34,9 @@ internal static class Mapper
             channel.PreferredAudioLanguageCode,
             GetStreamingMode(channel));
 
+    internal static ResolutionViewModel ProjectToViewModel(Resolution resolution) =>
+        new(resolution.Height, resolution.Width);
+
     private static string GetLogo(Channel channel) =>
         Optional(channel.Artwork.FirstOrDefault(a => a.ArtworkKind == ArtworkKind.Logo))
             .Match(a => a.Path, string.Empty);
@@ -45,6 +48,7 @@ internal static class Mapper
             StreamingMode.TransportStreamHybrid => "MPEG-TS",
             StreamingMode.HttpLiveStreamingDirect => "HLS Direct",
             StreamingMode.HttpLiveStreamingSegmenter => "HLS Segmenter",
+            StreamingMode.HttpLiveStreamingSegmenterV2 => "HLS Segmenter V2",
             _ => throw new ArgumentOutOfRangeException(nameof(channel))
         };
 }

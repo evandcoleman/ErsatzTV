@@ -13,6 +13,7 @@ using ErsatzTV.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using Serilog;
+using Serilog.Core;
 using Serilog.Events;
 using Serilog.Formatting.Compact.Reader;
 
@@ -20,11 +21,14 @@ namespace ErsatzTV.Application.Libraries;
 
 public abstract class CallLibraryScannerHandler<TRequest>
 {
+    private readonly int _batchSize = 100;
     private readonly ChannelWriter<ISearchIndexBackgroundServiceRequest> _channel;
     private readonly IConfigElementRepository _configElementRepository;
     private readonly IDbContextFactory<TvContext> _dbContextFactory;
     private readonly IMediator _mediator;
     private readonly IRuntimeInfo _runtimeInfo;
+    private readonly List<int> _toReindex = [];
+    private readonly List<int> _toRemove = [];
     private string _libraryName;
 
     protected CallLibraryScannerHandler(
@@ -65,6 +69,18 @@ public abstract class CallLibraryScannerHandler<TRequest>
             {
                 return BaseError.New($"ErsatzTV.Scanner exited with code {process.ExitCode}");
             }
+
+            if (_toReindex.Count > 0)
+            {
+                await _channel.WriteAsync(new ReindexMediaItems(_toReindex.ToArray()), cancellationToken);
+                _toReindex.Clear();
+            }
+
+            if (_toRemove.Count > 0)
+            {
+                await _channel.WriteAsync(new RemoveMediaItems(_toReindex.ToArray()), cancellationToken);
+                _toRemove.Clear();
+            }
         }
         catch (Exception ex) when (ex is TaskCanceledException or OperationCanceledException)
         {
@@ -84,7 +100,16 @@ public abstract class CallLibraryScannerHandler<TRequest>
                 // because the compact json writer used by the scanner
                 // writes in UTC
                 LogEvent logEvent = LogEventReader.ReadFromString(s);
-                Log.Write(
+
+                ILogger log = Log.Logger;
+                if (logEvent.Properties.TryGetValue("SourceContext", out LogEventPropertyValue property))
+                {
+                    log = log.ForContext(
+                        Constants.SourceContextPropertyName,
+                        property.ToString().Trim('"'));
+                }
+
+                log.Write(
                     new LogEvent(
                         logEvent.Timestamp.ToLocalTime(),
                         logEvent.Level,
@@ -113,6 +138,20 @@ public abstract class CallLibraryScannerHandler<TRequest>
                         _libraryName = progressUpdate.LibraryName;
                     }
 
+                    _toReindex.AddRange(progressUpdate.ItemsToReindex);
+                    if (_toReindex.Count >= _batchSize)
+                    {
+                        await _channel.WriteAsync(new ReindexMediaItems(_toReindex.ToArray()));
+                        _toReindex.Clear();
+                    }
+
+                    _toRemove.AddRange(progressUpdate.ItemsToRemove);
+                    if (_toRemove.Count >= _batchSize)
+                    {
+                        await _channel.WriteAsync(new RemoveMediaItems(_toReindex.ToArray()));
+                        _toRemove.Clear();
+                    }
+
                     if (progressUpdate.PercentComplete is not null)
                     {
                         var progress = new LibraryScanProgress(
@@ -120,18 +159,6 @@ public abstract class CallLibraryScannerHandler<TRequest>
                             progressUpdate.PercentComplete.Value);
 
                         await _mediator.Publish(progress);
-                    }
-
-                    if (progressUpdate.ItemsToReindex.Length > 0)
-                    {
-                        var reindex = new ReindexMediaItems(progressUpdate.ItemsToReindex);
-                        await _channel.WriteAsync(reindex);
-                    }
-
-                    if (progressUpdate.ItemsToRemove.Length > 0)
-                    {
-                        var remove = new RemoveMediaItems(progressUpdate.ItemsToRemove);
-                        await _channel.WriteAsync(remove);
                     }
                 }
             }
@@ -166,9 +193,16 @@ public abstract class CallLibraryScannerHandler<TRequest>
             : "ErsatzTV.Scanner";
 
         string processFileName = Environment.ProcessPath ?? string.Empty;
-        if (!string.IsNullOrWhiteSpace(processFileName))
+        string processExecutable = Path.GetFileNameWithoutExtension(processFileName);
+        string folderName = Path.GetDirectoryName(processFileName);
+        if ("dotnet".Equals(processExecutable, StringComparison.OrdinalIgnoreCase))
         {
-            string localFileName = Path.Combine(Path.GetDirectoryName(processFileName) ?? string.Empty, executable);
+            folderName = AppContext.BaseDirectory;
+        }
+
+        if (!string.IsNullOrWhiteSpace(folderName))
+        {
+            string localFileName = Path.Combine(folderName, executable);
             if (File.Exists(localFileName))
             {
                 return localFileName;

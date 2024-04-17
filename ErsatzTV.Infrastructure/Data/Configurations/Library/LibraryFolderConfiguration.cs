@@ -6,5 +6,20 @@ namespace ErsatzTV.Infrastructure.Data.Configurations;
 
 public class LibraryFolderConfiguration : IEntityTypeConfiguration<LibraryFolder>
 {
-    public void Configure(EntityTypeBuilder<LibraryFolder> builder) => builder.ToTable("LibraryFolder");
+    public void Configure(EntityTypeBuilder<LibraryFolder> builder)
+    {
+        builder.ToTable("LibraryFolder");
+
+        builder.HasOne(f => f.Parent)
+            .WithMany(p => p.Children)
+            .HasForeignKey(f => f.ParentId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(f => f.ImageFolderDuration)
+            .WithOne(ifd => ifd.LibraryFolder)
+            .HasForeignKey<ImageFolderDuration>(ifd => ifd.LibraryFolderId)
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
 }

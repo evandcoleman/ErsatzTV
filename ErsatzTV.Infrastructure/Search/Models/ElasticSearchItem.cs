@@ -27,13 +27,19 @@ public class ElasticSearchItem : MinimalElasticSearchItem
 
     [JsonPropertyName(LuceneSearchIndex.LanguageField)]
     public List<string> Language { get; set; }
-    
+
     [JsonPropertyName(LuceneSearchIndex.LanguageTagField)]
     public List<string> LanguageTag { get; set; }
 
+    [JsonPropertyName(LuceneSearchIndex.SubLanguageField)]
+    public List<string> SubLanguage { get; set; }
+
+    [JsonPropertyName(LuceneSearchIndex.SubLanguageTagField)]
+    public List<string> SubLanguageTag { get; set; }
+
     [JsonPropertyName(LuceneSearchIndex.MinutesField)]
     public int Minutes { get; set; }
-    
+
     [JsonPropertyName(LuceneSearchIndex.SecondsField)]
     public int Seconds { get; set; }
 
@@ -65,7 +71,7 @@ public class ElasticSearchItem : MinimalElasticSearchItem
     public string Album { get; set; }
 
     [JsonPropertyName(LuceneSearchIndex.AlbumArtistField)]
-    public string AlbumArtist { get; set; }
+    public List<string> AlbumArtist { get; set; }
 
     [JsonPropertyName(LuceneSearchIndex.PlotField)]
     public string Plot { get; set; }
@@ -109,9 +115,18 @@ public class ElasticSearchItem : MinimalElasticSearchItem
     [JsonPropertyName(LuceneSearchIndex.ShowTagField)]
     public List<string> ShowTag { get; set; }
 
+    [JsonPropertyName(LuceneSearchIndex.ShowStudioField)]
+    public List<string> ShowStudio { get; set; }
+    
+    [JsonPropertyName(LuceneSearchIndex.ShowContentRatingField)]
+    public List<string> ShowContentRating { get; set; }
+
     [JsonPropertyName(LuceneSearchIndex.StyleField)]
     public List<string> Style { get; set; }
 
     [JsonPropertyName(LuceneSearchIndex.MoodField)]
     public List<string> Mood { get; set; }
+
+    [JsonPropertyName(LuceneSearchIndex.LibraryFolderIdField)]
+    public int LibraryFolderId { get; set; }
 }

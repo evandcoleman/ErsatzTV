@@ -40,14 +40,11 @@ public class SongVideoGenerator : ISongVideoGenerator
         MediaVersion videoVersion = new FallbackMediaVersion
         {
             Id = -1,
-            Chapters = new List<MediaChapter>(),
+            Chapters = [],
             Width = 192,
             Height = 108,
             SampleAspectRatio = "1:1",
-            Streams = new List<MediaStream>
-            {
-                new() { MediaStreamKind = MediaStreamKind.Video, Index = 0, PixelFormat = "yuv420p" }
-            }
+            Streams = [new MediaStream { MediaStreamKind = MediaStreamKind.Video, Index = 0, PixelFormat = "yuv420p" }]
         };
 
         string[] backgrounds =
@@ -88,16 +85,18 @@ public class SongVideoGenerator : ISongVideoGenerator
                     sb.Append(CultureInfo.InvariantCulture, $"{{\\fs{largeFontSize}}}{metadata.Title}");
                 }
 
-                if (!string.IsNullOrWhiteSpace(metadata.Artist))
+                if (metadata.Artists.Count > 0)
                 {
-                    sb.Append(CultureInfo.InvariantCulture, $"\\N{{\\fs{fontSize}}}{metadata.Artist}");
+                    var allArtists = string.Join(", ", metadata.Artists);
+                    sb.Append(CultureInfo.InvariantCulture, $"\\N{{\\fs{fontSize}}}{allArtists}");
                 }
             }
             else
             {
-                if (!string.IsNullOrWhiteSpace(metadata.Artist))
+                if (metadata.Artists.Count > 0)
                 {
-                    sb.Append(metadata.Artist);
+                    var allArtists = string.Join(", ", metadata.Artists);
+                    sb.Append(allArtists);
                 }
 
                 if (!string.IsNullOrWhiteSpace(metadata.Title))
@@ -105,12 +104,12 @@ public class SongVideoGenerator : ISongVideoGenerator
                     sb.Append(CultureInfo.InvariantCulture, $"\\N\"{metadata.Title}\"");
                 }
 
-                if (!string.IsNullOrWhiteSpace(metadata.AlbumArtist) && !string.Equals(
-                        metadata.Artist,
-                        metadata.AlbumArtist,
-                        StringComparison.Ordinal))
+                if (metadata.AlbumArtists.Count > 0)
                 {
-                    sb.Append(CultureInfo.InvariantCulture, $"\\N{metadata.AlbumArtist}");
+                    var allAlbumArtists = string.Join(
+                        ", ",
+                        metadata.AlbumArtists.Filter(aa => !metadata.Artists.Contains(aa)));
+                    sb.Append(CultureInfo.InvariantCulture, $"\\N{allAlbumArtists}");
                 }
 
                 if (!string.IsNullOrWhiteSpace(metadata.Album))
@@ -189,7 +188,7 @@ public class SongVideoGenerator : ISongVideoGenerator
                     artwork.BlurHash64
                 }.Filter(s => !string.IsNullOrWhiteSpace(s)).ToList();
 
-                if (hashes.Any())
+                if (hashes.Count != 0)
                 {
                     string hash = hashes[NextRandom(hashes.Count)];
 

@@ -17,9 +17,11 @@ namespace ErsatzTV.Application.Playouts;
 
 public class BuildPlayoutHandler : IRequestHandler<BuildPlayout, Either<BaseError, Unit>>
 {
+    private readonly IBlockPlayoutBuilder _blockPlayoutBuilder;
     private readonly IClient _client;
     private readonly IDbContextFactory<TvContext> _dbContextFactory;
     private readonly IEntityLocker _entityLocker;
+    private readonly IExternalJsonPlayoutBuilder _externalJsonPlayoutBuilder;
     private readonly IFFmpegSegmenterService _ffmpegSegmenterService;
     private readonly IPlayoutBuilder _playoutBuilder;
     private readonly ChannelWriter<IBackgroundServiceRequest> _workerChannel;
@@ -28,6 +30,8 @@ public class BuildPlayoutHandler : IRequestHandler<BuildPlayout, Either<BaseErro
         IClient client,
         IDbContextFactory<TvContext> dbContextFactory,
         IPlayoutBuilder playoutBuilder,
+        IBlockPlayoutBuilder blockPlayoutBuilder,
+        IExternalJsonPlayoutBuilder externalJsonPlayoutBuilder,
         IFFmpegSegmenterService ffmpegSegmenterService,
         IEntityLocker entityLocker,
         ChannelWriter<IBackgroundServiceRequest> workerChannel)
@@ -35,6 +39,8 @@ public class BuildPlayoutHandler : IRequestHandler<BuildPlayout, Either<BaseErro
         _client = client;
         _dbContextFactory = dbContextFactory;
         _playoutBuilder = playoutBuilder;
+        _blockPlayoutBuilder = blockPlayoutBuilder;
+        _externalJsonPlayoutBuilder = externalJsonPlayoutBuilder;
         _ffmpegSegmenterService = ffmpegSegmenterService;
         _entityLocker = entityLocker;
         _workerChannel = workerChannel;
@@ -59,7 +65,20 @@ public class BuildPlayoutHandler : IRequestHandler<BuildPlayout, Either<BaseErro
         {
             _entityLocker.LockPlayout(playout.Id);
 
-            await _playoutBuilder.Build(playout, request.Mode, cancellationToken);
+            switch (playout.ProgramSchedulePlayoutType)
+            {
+                case ProgramSchedulePlayoutType.Block:
+                    await _blockPlayoutBuilder.Build(playout, request.Mode, cancellationToken);
+                    break;
+                case ProgramSchedulePlayoutType.ExternalJson:
+                    await _externalJsonPlayoutBuilder.Build(playout, request.Mode, cancellationToken);
+                    break;
+                case ProgramSchedulePlayoutType.None:
+                case ProgramSchedulePlayoutType.Flood:
+                default:
+                    await _playoutBuilder.Build(playout, request.Mode, cancellationToken);
+                    break;
+            }
 
             // let any active segmenter processes know that the playout has been modified
             // and therefore the segmenter may need to seek into the next item instead of
@@ -69,8 +88,6 @@ public class BuildPlayoutHandler : IRequestHandler<BuildPlayout, Either<BaseErro
             {
                 _ffmpegSegmenterService.PlayoutUpdated(playout.Channel.Number);
             }
-
-            _entityLocker.UnlockPlayout(playout.Id);
 
             Option<string> maybeChannelNumber = await dbContext.Connection
                 .QuerySingleOrDefaultAsync<string>(
@@ -83,7 +100,8 @@ public class BuildPlayoutHandler : IRequestHandler<BuildPlayout, Either<BaseErro
             foreach (string channelNumber in maybeChannelNumber)
             {
                 string fileName = Path.Combine(FileSystemLayout.ChannelGuideCacheFolder, $"{channelNumber}.xml");
-                if (hasChanges || !File.Exists(fileName))
+                if (hasChanges || !File.Exists(fileName) ||
+                    playout.ProgramSchedulePlayoutType is ProgramSchedulePlayoutType.ExternalJson)
                 {
                     await _workerChannel.WriteAsync(new RefreshChannelData(channelNumber), cancellationToken);
                 }
@@ -99,9 +117,15 @@ public class BuildPlayoutHandler : IRequestHandler<BuildPlayout, Either<BaseErro
         }
         catch (Exception ex)
         {
+            DebugBreak.Break();
+
             _client.Notify(ex);
             return BaseError.New(
                 $"Unexpected error building playout for channel {playout.Channel.Name}: {ex.Message}");
+        }
+        finally
+        {
+            _entityLocker.UnlockPlayout(playout.Id);
         }
 
         return Unit.Default;
@@ -113,7 +137,7 @@ public class BuildPlayoutHandler : IRequestHandler<BuildPlayout, Either<BaseErro
     private static Validation<BaseError, Playout> DiscardAttemptsMustBeValid(Playout playout)
     {
         foreach (ProgramScheduleItemDuration item in
-                 playout.ProgramSchedule.Items.OfType<ProgramScheduleItemDuration>())
+                 playout.ProgramSchedule?.Items.OfType<ProgramScheduleItemDuration>() ?? [])
         {
             item.DiscardToFillAttempts = item.PlaybackOrder switch
             {
@@ -131,6 +155,14 @@ public class BuildPlayoutHandler : IRequestHandler<BuildPlayout, Either<BaseErro
         dbContext.Playouts
             .Include(p => p.Channel)
             .Include(p => p.Items)
+            .Include(p => p.PlayoutHistory)
+            .Include(p => p.Templates)
+            .ThenInclude(t => t.Template)
+            .ThenInclude(t => t.Items)
+            .ThenInclude(i => i.Block)
+            .ThenInclude(b => b.Items)
+            .Include(p => p.FillGroupIndices)
+            .ThenInclude(fgi => fgi.EnumeratorState)
             .Include(p => p.ProgramScheduleAlternates)
             .ThenInclude(a => a.ProgramSchedule)
             .ThenInclude(ps => ps.Items)
