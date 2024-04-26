@@ -27,6 +27,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - ETV versions starting with v0.8.5-beta (using dotnet 8) store config data in `$HOME/Library/Application Support/ersatztv`
   - If a dotnet 8 version of ETV has NOT been launched on MacOS, it will automatically migrate the config folder on startup
   - If a dotnet 8 version of ETV *has* been launched on MacOS, a failing health check will display with instructions on how to resolve the config issue to restore data 
+- Add `Video Profile` setting to `FFmpeg Profile` editor when `h264` format is selected
+- Add `Video Preset` setting to `FFmpeg Profile` editor for some combinations of acceleration and video format:
+  - `Nvenc` / `h264`
+  - `Nvenc` / `hevc`
+  - `Qsv` / `h264`
+  - `Qsv` / `hevc`
+  - `None` / `h264`
+  - `None` / `hevc`
 
 ### Fixed
 - Fix some cases of 404s from Plex when files were replaced and scanning the library from ETV didn't help
@@ -41,10 +49,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `Something.sdh.en.srt`
   - `Something.en.forced.srt`
   - `Something.en.sdh.srt`
+- Fix playback from Jellyfin 10.9 by allowing playlist HTTP HEAD requests 
+- Fix `HLS Segmenter V2` segment duration (previously 10s, now 4s)
+- Fix `HLS Segmenter V2` error video generation
+- Fix MySql database migrations
+- Fix Plex library scans with MySql/MariaDB
+- Fix block playout playback when no deco is configured
 
 ### Changed
 - Use ffmpeg 7 in all docker images 
 - Show health checks at top of home page; scroll release notes if needed
+- Improve `HLS Segmenter V2` compliance by:
+  - Serving fmp4 segments when `hevc` video format is selected
+    - > 1.5. The container format for HEVC video MUST be fMP4.
+  - Using accurate BANDWIDTH value in multi-variant playlist
+  - Using proper MIME types for statically-served `.m3u8` and `.ts` files
+  - Serving playlists with gzip compression
 
 ## [0.8.6-beta] - 2024-04-03
 ### Added

@@ -147,7 +147,17 @@ public abstract class PipelineBuilderBase : IPipelineBuilder
     public FFmpegPipeline Build(FFmpegState ffmpegState, FrameState desiredState)
     {
         OutputOption.OutputOption outputOption = new FastStartOutputOption();
-        if (ffmpegState.OutputFormat == OutputFormatKind.Mp4)
+
+        var isFmp4Hls = false;
+        if (ffmpegState.OutputFormat is OutputFormatKind.Hls)
+        {
+            foreach (string segmentTemplate in ffmpegState.HlsSegmentTemplate)
+            {
+                isFmp4Hls = segmentTemplate.Contains("m4s");
+            }
+        }
+        
+        if (ffmpegState.OutputFormat == OutputFormatKind.Mp4 || isFmp4Hls)
         {
             outputOption = new Mp4OutputOptions();
         }
@@ -564,8 +574,8 @@ public abstract class PipelineBuilderBase : IPipelineBuilder
         return desiredState.VideoFormat switch
         {
             VideoFormat.Hevc => new EncoderLibx265(
-                currentState with { FrameDataLocation = FrameDataLocation.Software }),
-            VideoFormat.H264 => new EncoderLibx264(),
+                currentState with { FrameDataLocation = FrameDataLocation.Software }, desiredState.VideoPreset),
+            VideoFormat.H264 => new EncoderLibx264(desiredState.VideoProfile, desiredState.VideoPreset),
             VideoFormat.Mpeg2Video => new EncoderMpeg2Video(),
 
             VideoFormat.Copy => new EncoderCopyVideo(),

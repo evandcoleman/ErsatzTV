@@ -8,6 +8,7 @@ using ErsatzTV.FFmpeg.Environment;
 using ErsatzTV.FFmpeg.Format;
 using ErsatzTV.FFmpeg.OutputFormat;
 using ErsatzTV.FFmpeg.Pipeline;
+using ErsatzTV.FFmpeg.Preset;
 using ErsatzTV.FFmpeg.State;
 using Microsoft.Extensions.Logging;
 using MediaStream = ErsatzTV.Core.Domain.MediaStream;
@@ -303,9 +304,11 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
 
         Option<WatermarkInputFile> watermarkInputFile = GetWatermarkInputFile(watermarkOptions, maybeFadePoints);
 
-        string videoFormat = GetVideoFormat(playbackSettings);
-
         HardwareAccelerationMode hwAccel = GetHardwareAccelerationMode(playbackSettings, fillerKind);
+
+        string videoFormat = GetVideoFormat(playbackSettings);
+        Option<string> maybeVideoProfile = GetVideoProfile(videoFormat, channel.FFmpegProfile.VideoProfile);
+        Option<string> maybeVideoPreset = GetVideoPreset(hwAccel, videoFormat, channel.FFmpegProfile.VideoPreset);
 
         Option<string> hlsPlaylistPath = outputFormat == OutputFormatKind.Hls
             ? Path.Combine(FileSystemLayout.TranscodeFolder, channel.Number, "live.m3u8")
@@ -343,7 +346,8 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             playbackSettings.RealtimeOutput,
             fillerKind == FillerKind.Fallback,
             videoFormat,
-            Optional(videoStream.Profile),
+            maybeVideoProfile,
+            maybeVideoPreset,
             Optional(playbackSettings.PixelFormat),
             scaledSize,
             paddedSize,
@@ -444,11 +448,14 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             Option<TimeSpan>.None,
             AudioFilter.None);
 
+        var videoFormat = GetVideoFormat(playbackSettings);
+        
         var desiredState = new FrameState(
             playbackSettings.RealtimeOutput,
             false,
-            GetVideoFormat(playbackSettings),
-            VideoProfile.Main,
+            videoFormat,
+            GetVideoProfile(videoFormat, channel.FFmpegProfile.VideoProfile),
+            VideoPreset.Unset,
             new PixelFormatYuv420P(),
             new FrameSize(desiredResolution.Width, desiredResolution.Height),
             new FrameSize(desiredResolution.Width, desiredResolution.Height),
@@ -460,9 +467,16 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             playbackSettings.VideoTrackTimeScale,
             playbackSettings.Deinterlace);
 
-        OutputFormatKind outputFormat = channel.StreamingMode == StreamingMode.HttpLiveStreamingSegmenter
-            ? OutputFormatKind.Hls
-            : OutputFormatKind.MpegTs;
+        OutputFormatKind outputFormat = OutputFormatKind.MpegTs;
+        switch (channel.StreamingMode)
+        {
+            case StreamingMode.HttpLiveStreamingSegmenter:
+                outputFormat = OutputFormatKind.Hls;
+                break;
+            case StreamingMode.HttpLiveStreamingSegmenterV2:
+                outputFormat = OutputFormatKind.Nut;
+                break;
+        }
 
         Option<string> hlsPlaylistPath = outputFormat == OutputFormatKind.Hls
             ? Path.Combine(FileSystemLayout.TranscodeFolder, channel.Number, "live.m3u8")
@@ -645,22 +659,29 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
         Option<SubtitleInputFile> subtitleInputFile = Option<SubtitleInputFile>.None;
         Option<WatermarkInputFile> watermarkInputFile = Option<WatermarkInputFile>.None;
 
-        string videoFormat = GetVideoFormat(playbackSettings);
-
         HardwareAccelerationMode hwAccel = GetHardwareAccelerationMode(playbackSettings, FillerKind.None);
+
+        string videoFormat = GetVideoFormat(playbackSettings);
+        Option<string> maybeVideoProfile = GetVideoProfile(videoFormat, channel.FFmpegProfile.VideoProfile);
+        Option<string> maybeVideoPreset = GetVideoPreset(hwAccel, videoFormat, channel.FFmpegProfile.VideoPreset);
 
         Option<string> hlsPlaylistPath = Path.Combine(FileSystemLayout.TranscodeFolder, channel.Number, "live.m3u8");
 
-        Option<string> hlsSegmentTemplate = Path.Combine(
-            FileSystemLayout.TranscodeFolder,
-            channel.Number,
-            "live%06d.ts");
+        Option<string> hlsSegmentTemplate = videoFormat switch
+        {
+            // hls/hevc needs mp4
+            VideoFormat.Hevc => Path.Combine(FileSystemLayout.TranscodeFolder, channel.Number, "live%06d.m4s"),
+
+            // hls is otherwise fine with ts
+            _ => Path.Combine(FileSystemLayout.TranscodeFolder, channel.Number, "live%06d.ts")
+        };
 
         var desiredState = new FrameState(
             playbackSettings.RealtimeOutput,
             true,
             videoFormat,
-            Option<string>.None,
+            maybeVideoProfile,
+            maybeVideoPreset,
             Optional(playbackSettings.PixelFormat),
             resolution,
             resolution,
@@ -975,6 +996,22 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             FFmpegProfileVideoFormat.Copy => VideoFormat.Copy,
             _ => throw new ArgumentOutOfRangeException($"unexpected video format {playbackSettings.VideoFormat}")
         };
+
+    private static Option<string> GetVideoProfile(string videoFormat, string videoProfile) =>
+        (videoFormat, videoProfile.ToLowerInvariant()) switch
+        {
+            (VideoFormat.H264, VideoProfile.Main) => VideoProfile.Main,
+            (VideoFormat.H264, VideoProfile.High) => VideoProfile.High,
+            _ => Option<string>.None
+        };
+
+    private static Option<string> GetVideoPreset(
+        HardwareAccelerationMode hardwareAccelerationMode,
+        string videoFormat,
+        string videoPreset) =>
+        AvailablePresets
+            .ForAccelAndFormat(hardwareAccelerationMode, videoFormat)
+            .Find(p => string.Equals(p, videoPreset, StringComparison.OrdinalIgnoreCase));
 
     private static HardwareAccelerationMode GetHardwareAccelerationMode(
         FFmpegPlaybackSettings playbackSettings,

@@ -14,6 +14,8 @@ public record CreateFFmpegProfile(
     int ResolutionId,
     ScalingBehavior ScalingBehavior,
     FFmpegProfileVideoFormat VideoFormat,
+    string VideoProfile,
+    string VideoPreset,
     FFmpegProfileBitDepth BitDepth,
     int VideoBitrate,
     int VideoBufferSize,

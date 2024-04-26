@@ -17,6 +17,8 @@ internal static class Mapper
             Resolutions.Mapper.ProjectToViewModel(profile.Resolution),
             profile.ScalingBehavior,
             profile.VideoFormat,
+            profile.VideoProfile,
+            profile.VideoPreset ?? string.Empty,
             profile.BitDepth,
             profile.VideoBitrate,
             profile.VideoBufferSize,
