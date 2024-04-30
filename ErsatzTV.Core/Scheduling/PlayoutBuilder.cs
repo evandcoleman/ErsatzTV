@@ -5,6 +5,7 @@ using ErsatzTV.Core.Interfaces.Metadata;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Interfaces.Scheduling;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Newtonsoft.Json;
 using Map = LanguageExt.Map;
 
@@ -18,10 +19,11 @@ public class PlayoutBuilder : IPlayoutBuilder
     private readonly IArtistRepository _artistRepository;
     private readonly IConfigElementRepository _configElementRepository;
     private readonly ILocalFileSystem _localFileSystem;
-    private readonly ILogger<PlayoutBuilder> _logger;
+    private ILogger<PlayoutBuilder> _logger;
     private readonly IMediaCollectionRepository _mediaCollectionRepository;
     private readonly IMultiEpisodeShuffleCollectionEnumeratorFactory _multiEpisodeFactory;
     private readonly ITelevisionRepository _televisionRepository;
+    private Playlist _debugPlaylist;
 
     public PlayoutBuilder(
         IConfigElementRepository configElementRepository,
@@ -39,6 +41,21 @@ public class PlayoutBuilder : IPlayoutBuilder
         _multiEpisodeFactory = multiEpisodeFactory;
         _localFileSystem = localFileSystem;
         _logger = logger;
+    }
+
+    public bool TrimStart { get; set; } = true;
+
+    public Playlist DebugPlaylist
+    {
+        get => _debugPlaylist;
+        set
+        {
+            if (value is not null)
+            {
+                _debugPlaylist = value;
+                _logger = NullLogger<PlayoutBuilder>.Instance;
+            }
+        }
     }
 
     public async Task<Playout> Build(Playout playout, PlayoutBuildMode mode, CancellationToken cancellationToken)
@@ -368,8 +385,11 @@ public class PlayoutBuilder : IPlayoutBuilder
                 cancellationToken);
         }
 
-        // remove old items
-        playout.Items.RemoveAll(old => old.FinishOffset < trimBefore);
+        if (TrimStart)
+        {
+            // remove old items
+            playout.Items.RemoveAll(old => old.FinishOffset < trimBefore);
+        }
 
         // check for future items that aren't grouped inside range
         var futureItems = playout.Items.Filter(i => i.StartOffset > trimAfter).ToList();
@@ -866,6 +886,7 @@ public class PlayoutBuilder : IPlayoutBuilder
                      && a.FakeCollectionKey == collectionKey.FakeCollectionKey
                      && a.SmartCollectionId == collectionKey.SmartCollectionId
                      && a.MultiCollectionId == collectionKey.MultiCollectionId
+                     && a.PlaylistId == collectionKey.PlaylistId
                      && a.AnchorDate is null);
 
             var maybeEnumeratorState = collectionEnumerators.ToDictionary(e => e.Key, e => e.Value.State);
@@ -885,6 +906,7 @@ public class PlayoutBuilder : IPlayoutBuilder
                     MultiCollectionId = collectionKey.MultiCollectionId,
                     SmartCollectionId = collectionKey.SmartCollectionId,
                     MediaItemId = collectionKey.MediaItemId,
+                    PlaylistId = collectionKey.PlaylistId,
                     FakeCollectionKey = collectionKey.FakeCollectionKey,
                     EnumeratorState = maybeEnumeratorState[collectionKey]
                 });
@@ -922,7 +944,8 @@ public class PlayoutBuilder : IPlayoutBuilder
                      && a.CollectionId == collectionKey.CollectionId
                      && a.MultiCollectionId == collectionKey.MultiCollectionId
                      && a.SmartCollectionId == collectionKey.SmartCollectionId
-                     && a.MediaItemId == collectionKey.MediaItemId);
+                     && a.MediaItemId == collectionKey.MediaItemId
+                     && a.PlaylistId == collectionKey.PlaylistId);
 
         CollectionEnumeratorState state = null;
 
@@ -936,6 +959,22 @@ public class PlayoutBuilder : IPlayoutBuilder
         }
 
         state ??= new CollectionEnumeratorState { Seed = Random.Next(), Index = 0 };
+        
+        if (collectionKey.CollectionType is ProgramScheduleItemCollectionType.Playlist)
+        {
+            foreach (int playlistId in Optional(collectionKey.PlaylistId))
+            {
+                Dictionary<PlaylistItem, List<MediaItem>> playlistItemMap = DebugPlaylist is not null
+                    ? await _mediaCollectionRepository.GetPlaylistItemMap(DebugPlaylist)
+                    : await _mediaCollectionRepository.GetPlaylistItemMap(playlistId);
+
+                return await PlaylistEnumerator.Create(
+                    _mediaCollectionRepository,
+                    playlistItemMap,
+                    state,
+                    cancellationToken);
+            }
+        }
 
         int collectionId = collectionKey.CollectionId ?? 0;
 
@@ -985,7 +1024,7 @@ public class PlayoutBuilder : IPlayoutBuilder
                 return new RandomizedMediaCollectionEnumerator(mediaItems, state);
             case PlaybackOrder.ShuffleInOrder:
                 return new ShuffleInOrderCollectionEnumerator(
-                    await GetCollectionItemsForShuffleInOrder(collectionKey),
+                    await GetCollectionItemsForShuffleInOrder(_mediaCollectionRepository, collectionKey),
                     state,
                     activeSchedule.RandomStartPoint,
                     cancellationToken);
@@ -1026,7 +1065,11 @@ public class PlayoutBuilder : IPlayoutBuilder
             case PlaybackOrder.MultiEpisodeShuffle:
             case PlaybackOrder.Shuffle:
                 return new ShuffledMediaCollectionEnumerator(
-                    await GetGroupedMediaItemsForShuffle(activeSchedule, mediaItems, collectionKey),
+                    await GetGroupedMediaItemsForShuffle(
+                        _mediaCollectionRepository,
+                        activeSchedule,
+                        mediaItems,
+                        collectionKey),
                     state,
                     cancellationToken);
             default:
@@ -1035,14 +1078,15 @@ public class PlayoutBuilder : IPlayoutBuilder
         }
     }
 
-    private async Task<List<GroupedMediaItem>> GetGroupedMediaItemsForShuffle(
+    internal static async Task<List<GroupedMediaItem>> GetGroupedMediaItemsForShuffle(
+        IMediaCollectionRepository mediaCollectionRepository,
         ProgramSchedule activeSchedule,
         List<MediaItem> mediaItems,
         CollectionKey collectionKey)
     {
         if (collectionKey.MultiCollectionId != null)
         {
-            List<CollectionWithItems> collections = await _mediaCollectionRepository
+            List<CollectionWithItems> collections = await mediaCollectionRepository
                 .GetMultiCollectionCollections(collectionKey.MultiCollectionId.Value);
 
             return MultiCollectionGrouper.GroupMediaItems(collections);
@@ -1053,18 +1097,20 @@ public class PlayoutBuilder : IPlayoutBuilder
             : mediaItems.Map(mi => new GroupedMediaItem(mi, null)).ToList();
     }
 
-    private async Task<List<CollectionWithItems>> GetCollectionItemsForShuffleInOrder(CollectionKey collectionKey)
+    internal static async Task<List<CollectionWithItems>> GetCollectionItemsForShuffleInOrder(
+        IMediaCollectionRepository mediaCollectionRepository,
+        CollectionKey collectionKey)
     {
         List<CollectionWithItems> result;
 
         if (collectionKey.MultiCollectionId != null)
         {
-            result = await _mediaCollectionRepository.GetMultiCollectionCollections(
+            result = await mediaCollectionRepository.GetMultiCollectionCollections(
                 collectionKey.MultiCollectionId.Value);
         }
         else
         {
-            result = await _mediaCollectionRepository.GetFakeMultiCollectionCollections(
+            result = await mediaCollectionRepository.GetFakeMultiCollectionCollections(
                 collectionKey.CollectionId,
                 collectionKey.SmartCollectionId);
         }

@@ -69,6 +69,7 @@ public class ProgramScheduleItemEditViewModel : INotifyPropertyChanged
     public MultiCollectionViewModel MultiCollection { get; set; }
     public SmartCollectionViewModel SmartCollection { get; set; }
     public NamedMediaItemViewModel MediaItem { get; set; }
+    public PlaylistViewModel Playlist { get; set; }
     public FillerPresetViewModel PreRollFiller { get; set; }
     public FillerPresetViewModel MidRollFiller { get; set; }
     public FillerPresetViewModel PostRollFiller { get; set; }
@@ -88,6 +89,7 @@ public class ProgramScheduleItemEditViewModel : INotifyPropertyChanged
         ProgramScheduleItemCollectionType.Artist => MediaItem?.Name,
         ProgramScheduleItemCollectionType.MultiCollection => MultiCollection?.Name,
         ProgramScheduleItemCollectionType.SmartCollection => SmartCollection?.Name,
+        ProgramScheduleItemCollectionType.Playlist => Playlist?.Name,
         _ => string.Empty
     };
 

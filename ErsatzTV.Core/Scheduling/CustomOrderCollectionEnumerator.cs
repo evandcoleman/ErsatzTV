@@ -6,9 +6,7 @@ namespace ErsatzTV.Core.Scheduling;
 
 public class CustomOrderCollectionEnumerator : IMediaCollectionEnumerator
 {
-    private readonly Collection _collection;
     private readonly Lazy<Option<TimeSpan>> _lazyMinimumDuration;
-    private readonly IList<MediaItem> _mediaItems;
 
     private readonly IList<MediaItem> _sortedMediaItems;
 
@@ -17,8 +15,7 @@ public class CustomOrderCollectionEnumerator : IMediaCollectionEnumerator
         IList<MediaItem> mediaItems,
         CollectionEnumeratorState state)
     {
-        _collection = collection;
-        _mediaItems = mediaItems;
+        CurrentIncludeInProgramGuide = Option<bool>.None;
 
         // TODO: this will break if we allow shows and seasons
         _sortedMediaItems = collection.CollectionItems
@@ -42,6 +39,7 @@ public class CustomOrderCollectionEnumerator : IMediaCollectionEnumerator
     public CollectionEnumeratorState State { get; }
 
     public Option<MediaItem> Current => _sortedMediaItems.Any() ? _sortedMediaItems[State.Index] : None;
+    public Option<bool> CurrentIncludeInProgramGuide { get; }
 
     public void MoveNext() => State.Index = (State.Index + 1) % _sortedMediaItems.Count;
 

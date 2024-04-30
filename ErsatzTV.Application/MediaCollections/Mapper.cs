@@ -45,4 +45,39 @@ internal static class Mapper
             ProjectToViewModel(multiCollectionSmartItem.SmartCollection),
             multiCollectionSmartItem.ScheduleAsGroup,
             multiCollectionSmartItem.PlaybackOrder);
+
+    internal static PlaylistGroupViewModel ProjectToViewModel(PlaylistGroup playlistGroup) =>
+        new(playlistGroup.Id, playlistGroup.Name, playlistGroup.Playlists.Count);
+    
+    internal static PlaylistViewModel ProjectToViewModel(Playlist playlist) =>
+        new(playlist.Id, playlist.PlaylistGroupId, playlist.Name);
+
+    internal static PlaylistItemViewModel ProjectToViewModel(PlaylistItem playlistItem) =>
+        new(
+            playlistItem.Id,
+            playlistItem.Index,
+            playlistItem.CollectionType,
+            playlistItem.Collection is not null ? ProjectToViewModel(playlistItem.Collection) : null,
+            playlistItem.MultiCollection is not null
+                ? ProjectToViewModel(playlistItem.MultiCollection)
+                : null,
+            playlistItem.SmartCollection is not null
+                ? ProjectToViewModel(playlistItem.SmartCollection)
+                : null,
+            playlistItem.MediaItem switch
+            {
+                Show show => MediaItems.Mapper.ProjectToViewModel(show),
+                Season season => MediaItems.Mapper.ProjectToViewModel(season),
+                Artist artist => MediaItems.Mapper.ProjectToViewModel(artist),
+                Movie movie => MediaItems.Mapper.ProjectToViewModel(movie),
+                Episode episode => MediaItems.Mapper.ProjectToViewModel(episode),
+                MusicVideo musicVideo => MediaItems.Mapper.ProjectToViewModel(musicVideo),
+                OtherVideo otherVideo => MediaItems.Mapper.ProjectToViewModel(otherVideo),
+                Song song => MediaItems.Mapper.ProjectToViewModel(song),
+                Image image => MediaItems.Mapper.ProjectToViewModel(image),
+                _ => null
+            },
+            playlistItem.PlaybackOrder,
+            playlistItem.PlayAll,
+            playlistItem.IncludeInProgramGuide);
 }

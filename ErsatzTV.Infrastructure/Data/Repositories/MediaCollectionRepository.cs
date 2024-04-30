@@ -28,6 +28,258 @@ public class MediaCollectionRepository : IMediaCollectionRepository
         _dbContextFactory = dbContextFactory;
     }
 
+    public async Task<Dictionary<PlaylistItem, List<MediaItem>>> GetPlaylistItemMap(int playlistId)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+        var result = new Dictionary<PlaylistItem, List<MediaItem>>();
+
+        Option<Playlist> maybePlaylist = await dbContext.Playlists
+            .Include(p => p.Items)
+            .SelectOneAsync(p => p.Id, p => p.Id == playlistId);
+
+        foreach (PlaylistItem playlistItem in maybePlaylist.SelectMany(p => p.Items))
+        {
+            var mediaItems = new List<MediaItem>();
+
+            switch (playlistItem.CollectionType)
+            {
+                case ProgramScheduleItemCollectionType.Collection:
+                    foreach (int collectionId in Optional(playlistItem.CollectionId))
+                    {
+
+                        mediaItems.AddRange(await GetMovieItems(dbContext, collectionId));
+                        mediaItems.AddRange(await GetShowItems(dbContext, collectionId));
+                        mediaItems.AddRange(await GetSeasonItems(dbContext, collectionId));
+                        mediaItems.AddRange(await GetEpisodeItems(dbContext, collectionId));
+                        mediaItems.AddRange(await GetArtistItems(dbContext, collectionId));
+                        mediaItems.AddRange(await GetMusicVideoItems(dbContext, collectionId));
+                        mediaItems.AddRange(await GetOtherVideoItems(dbContext, collectionId));
+                        mediaItems.AddRange(await GetSongItems(dbContext, collectionId));
+                        mediaItems.AddRange(await GetImageItems(dbContext, collectionId));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.TelevisionShow:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetShowItemsFromShowId(dbContext, mediaItemId));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.TelevisionSeason:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetSeasonItemsFromSeasonId(dbContext, mediaItemId));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.Artist:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetArtistItemsFromArtistId(dbContext, mediaItemId));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.MultiCollection:
+                    foreach (int multiCollectionId in Optional(playlistItem.MultiCollectionId))
+                    {
+                        mediaItems.AddRange(await GetMultiCollectionItems(multiCollectionId));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.SmartCollection:
+                    foreach (int smartCollectionId in Optional(playlistItem.SmartCollectionId))
+                    {
+                        mediaItems.AddRange(await GetSmartCollectionItems(smartCollectionId));
+                    }
+
+                    break;
+                
+                case ProgramScheduleItemCollectionType.Movie:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetMovieItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.Episode:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetEpisodeItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.MusicVideo:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetMusicVideoItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.OtherVideo:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetOtherVideoItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+                
+                case ProgramScheduleItemCollectionType.Song:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetSongItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+                
+                case ProgramScheduleItemCollectionType.Image:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetImageItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+            }
+
+            result.Add(playlistItem, mediaItems);
+        }
+
+        return result;
+    }
+
+    public async Task<Dictionary<PlaylistItem, List<MediaItem>>> GetPlaylistItemMap(Playlist playlist)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+        var result = new Dictionary<PlaylistItem, List<MediaItem>>();
+
+        foreach (PlaylistItem playlistItem in playlist.Items)
+        {
+            var mediaItems = new List<MediaItem>();
+
+            switch (playlistItem.CollectionType)
+            {
+                case ProgramScheduleItemCollectionType.Collection:
+                    foreach (int collectionId in Optional(playlistItem.CollectionId))
+                    {
+
+                        mediaItems.AddRange(await GetMovieItems(dbContext, collectionId));
+                        mediaItems.AddRange(await GetShowItems(dbContext, collectionId));
+                        mediaItems.AddRange(await GetSeasonItems(dbContext, collectionId));
+                        mediaItems.AddRange(await GetEpisodeItems(dbContext, collectionId));
+                        mediaItems.AddRange(await GetArtistItems(dbContext, collectionId));
+                        mediaItems.AddRange(await GetMusicVideoItems(dbContext, collectionId));
+                        mediaItems.AddRange(await GetOtherVideoItems(dbContext, collectionId));
+                        mediaItems.AddRange(await GetSongItems(dbContext, collectionId));
+                        mediaItems.AddRange(await GetImageItems(dbContext, collectionId));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.TelevisionShow:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetShowItemsFromShowId(dbContext, mediaItemId));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.TelevisionSeason:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetSeasonItemsFromSeasonId(dbContext, mediaItemId));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.Artist:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetArtistItemsFromArtistId(dbContext, mediaItemId));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.MultiCollection:
+                    foreach (int multiCollectionId in Optional(playlistItem.MultiCollectionId))
+                    {
+                        mediaItems.AddRange(await GetMultiCollectionItems(multiCollectionId));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.SmartCollection:
+                    foreach (int smartCollectionId in Optional(playlistItem.SmartCollectionId))
+                    {
+                        mediaItems.AddRange(await GetSmartCollectionItems(smartCollectionId));
+                    }
+
+                    break;
+                
+                case ProgramScheduleItemCollectionType.Movie:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetMovieItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.Episode:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetEpisodeItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.MusicVideo:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetMusicVideoItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.OtherVideo:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetOtherVideoItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+                
+                case ProgramScheduleItemCollectionType.Song:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetSongItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+                
+                case ProgramScheduleItemCollectionType.Image:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        mediaItems.AddRange(await GetImageItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+            }
+
+            result.Add(playlistItem, mediaItems);
+        }
+
+        return result;
+    }
+
     public async Task<Option<Collection>> GetCollectionWithCollectionItemsUntracked(int id)
     {
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
@@ -249,6 +501,165 @@ public class MediaCollectionRepository : IMediaCollectionRepository
 
         return result;
     }
+    
+    public async Task<List<MediaItem>> GetPlaylistItems(int id)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+        var result = new List<MediaItem>();
+
+        Option<Playlist> maybePlaylist = await dbContext.Playlists
+            .Include(p => p.Items)
+            .SelectOneAsync(p => p.Id, p => p.Id == id);
+
+        foreach (PlaylistItem playlistItem in maybePlaylist.SelectMany(p => p.Items))
+        {
+            switch (playlistItem.CollectionType)
+            {
+                case ProgramScheduleItemCollectionType.Collection:
+                    foreach (int collectionId in Optional(playlistItem.CollectionId))
+                    {
+                        result.AddRange(await GetMovieItems(dbContext, collectionId));
+                        result.AddRange(await GetShowItems(dbContext, collectionId));
+                        result.AddRange(await GetSeasonItems(dbContext, collectionId));
+                        result.AddRange(await GetEpisodeItems(dbContext, collectionId));
+                        result.AddRange(await GetArtistItems(dbContext, collectionId));
+                        result.AddRange(await GetMusicVideoItems(dbContext, collectionId));
+                        result.AddRange(await GetOtherVideoItems(dbContext, collectionId));
+                        result.AddRange(await GetSongItems(dbContext, collectionId));
+                        result.AddRange(await GetImageItems(dbContext, collectionId));
+                    }
+
+                    break;
+                
+                case ProgramScheduleItemCollectionType.TelevisionShow:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        result.AddRange(await GetShowItemsFromShowId(dbContext, mediaItemId));
+                    }
+
+                    break;
+                
+                case ProgramScheduleItemCollectionType.TelevisionSeason:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        result.AddRange(await GetSeasonItemsFromSeasonId(dbContext, mediaItemId));
+                    }
+
+                    break;
+                
+                case ProgramScheduleItemCollectionType.Artist:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        result.AddRange(await GetArtistItemsFromArtistId(dbContext, mediaItemId));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.MultiCollection:
+                    foreach (int multiCollectionId in Optional(playlistItem.MultiCollectionId))
+                    {
+                        result.AddRange(await GetMultiCollectionItems(multiCollectionId));
+                    }
+
+                    break;
+                
+                case ProgramScheduleItemCollectionType.SmartCollection:
+                    foreach (int smartCollectionId in Optional(playlistItem.SmartCollectionId))
+                    {
+                        result.AddRange(await GetSmartCollectionItems(smartCollectionId));
+                    }
+
+                    break;
+                
+                case ProgramScheduleItemCollectionType.Movie:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        result.AddRange(await GetMovieItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+                
+                case ProgramScheduleItemCollectionType.Episode:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        result.AddRange(await GetEpisodeItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.MusicVideo:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        result.AddRange(await GetMusicVideoItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+
+                case ProgramScheduleItemCollectionType.OtherVideo:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        result.AddRange(await GetOtherVideoItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+                
+                case ProgramScheduleItemCollectionType.Song:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        result.AddRange(await GetSongItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+                
+                case ProgramScheduleItemCollectionType.Image:
+                    foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
+                    {
+                        result.AddRange(await GetImageItems(dbContext, [mediaItemId]));
+                    }
+
+                    break;
+            }
+        }
+
+        return result.DistinctBy(x => x.Id).ToList();
+    }
+
+    public async Task<List<Movie>> GetMovie(int id)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+        return await GetMovieItems(dbContext, [id]);
+    }
+
+    public async Task<List<Episode>> GetEpisode(int id)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+        return await GetEpisodeItems(dbContext, [id]);
+    }
+
+    public async Task<List<MusicVideo>> GetMusicVideo(int id)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+        return await GetMusicVideoItems(dbContext, [id]);
+    }
+
+    public async Task<List<OtherVideo>> GetOtherVideo(int id)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+        return await GetOtherVideoItems(dbContext, [id]);
+    }
+
+    public async Task<List<Song>> GetSong(int id)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+        return await GetSongItems(dbContext, [id]);
+    }
+
+    public async Task<List<Image>> GetImage(int id)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+        return await GetImageItems(dbContext, [id]);
+    }
 
     public async Task<List<CollectionWithItems>> GetFakeMultiCollectionCollections(
         int? collectionId,
@@ -337,6 +748,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
             ProgramScheduleItemCollectionType.TelevisionShow => await dbContext.Shows.Include(s => s.ShowMetadata)
                 .SelectOneAsync(a => a.Id, a => a.Id == emptyCollection.MediaItemId.Value)
                 .MapT(s => s.ShowMetadata.Head().Title),
+            // TODO: get playlist name
             _ => None
         };
     }
@@ -485,7 +897,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
 
         return await GetMovieItems(dbContext, ids);
     }
-
+    
     private static Task<List<Movie>> GetMovieItems(TvContext dbContext, IEnumerable<int> movieIds) =>
         dbContext.Movies
             .Include(m => m.MovieMetadata)

@@ -65,6 +65,13 @@
                 <MudButton Class="ml-3"
                            Variant="Variant.Filled"
                            Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.PlaylistAdd"
+                           OnClick="@AddToPlaylist">
+                    Add To Playlist
+                </MudButton>
+                <MudButton Class="ml-3"
+                           Variant="Variant.Filled"
+                           Color="Color.Primary"
                            StartIcon="@Icons.Material.Filled.Schedule"
                            OnClick="@AddToSchedule">
                     Add To Schedule
@@ -220,6 +227,20 @@
         }
     }
 
+    private async Task AddToPlaylist()
+    {
+        var parameters = new DialogParameters { { "EntityType", "show" }, { "EntityName", _show.Title } };
+        var options = new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.ExtraSmall };
+
+        IDialogReference dialog = await _dialog.ShowAsync<AddToPlaylistDialog>("Add To Playlist", parameters, options);
+        DialogResult result = await dialog.Result;
+        if (!result.Canceled && result.Data is PlaylistViewModel playlist)
+        {
+            await _mediator.Send(new AddShowToPlaylist(playlist.Id, ShowId), _cts.Token);
+            _navigationManager.NavigateTo($"media/playlists/{playlist.Id}");
+        }
+    }
+
     private async Task AddToSchedule()
     {
         var parameters = new DialogParameters { { "EntityType", "show" }, { "EntityName", _show.Title } };
@@ -229,7 +250,7 @@
         DialogResult result = await dialog.Result;
         if (!result.Canceled && result.Data is ProgramScheduleViewModel schedule)
         {
-            await _mediator.Send(new AddProgramScheduleItem(schedule.Id, StartType.Dynamic, null, PlayoutMode.One, ProgramScheduleItemCollectionType.TelevisionShow, null, null, null, ShowId, PlaybackOrder.Shuffle, FillWithGroupMode.None, null, null, TailMode.None, null, null, GuideMode.Normal, null, null, null, null, null, null, null, null, null, null), _cts.Token);
+            await _mediator.Send(new AddProgramScheduleItem(schedule.Id, StartType.Dynamic, null, PlayoutMode.One, ProgramScheduleItemCollectionType.TelevisionShow, null, null, null, ShowId, null, PlaybackOrder.Shuffle, FillWithGroupMode.None, null, null, TailMode.None, null, null, GuideMode.Normal, null, null, null, null, null, null, null, null, null, null), _cts.Token);
             _navigationManager.NavigateTo($"schedules/{schedule.Id}/items");
         }
     }
