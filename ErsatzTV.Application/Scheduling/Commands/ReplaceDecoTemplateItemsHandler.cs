@@ -27,7 +27,12 @@ public class ReplaceDecoTemplateItemsHandler(IDbContextFactory<TvContext> dbCont
         decoTemplate.DateUpdated = DateTime.UtcNow;
 
         dbContext.RemoveRange(decoTemplate.Items);
-        decoTemplate.Items = request.Items.Map(i => BuildItem(decoTemplate, i)).ToList();
+
+        // drop items that are invalid
+        decoTemplate.Items = request.Items
+            .Map(i => BuildItem(decoTemplate, i))
+            .Filter(i => i.StartTime < i.EndTime || i.EndTime == TimeSpan.Zero)
+            .ToList();
 
         await dbContext.SaveChangesAsync();
 
@@ -55,10 +60,14 @@ public class ReplaceDecoTemplateItemsHandler(IDbContextFactory<TvContext> dbCont
             EndTime = item.EndTime
         };
 
-    private static Task<Validation<BaseError, DecoTemplate>> Validate(TvContext dbContext, ReplaceDecoTemplateItems request) =>
+    private static Task<Validation<BaseError, DecoTemplate>> Validate(
+        TvContext dbContext,
+        ReplaceDecoTemplateItems request) =>
         DecoTemplateMustExist(dbContext, request.DecoTemplateId);
 
-    private static Task<Validation<BaseError, DecoTemplate>> DecoTemplateMustExist(TvContext dbContext, int decoTemplateId) =>
+    private static Task<Validation<BaseError, DecoTemplate>> DecoTemplateMustExist(
+        TvContext dbContext,
+        int decoTemplateId) =>
         dbContext.DecoTemplates
             .Include(b => b.Items)
             .SelectOneAsync(b => b.Id, b => b.Id == decoTemplateId)

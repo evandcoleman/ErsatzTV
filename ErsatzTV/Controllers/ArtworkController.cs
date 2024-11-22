@@ -1,10 +1,13 @@
-﻿using ErsatzTV.Application.Emby;
+using ErsatzTV.Application.Artworks;
+using ErsatzTV.Application.Emby;
 using ErsatzTV.Application.Images;
 using ErsatzTV.Application.Jellyfin;
 using ErsatzTV.Application.Plex;
 using ErsatzTV.Core;
 using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Emby;
+using ErsatzTV.Core.Images;
+using ErsatzTV.Core.Interfaces.Images;
 using ErsatzTV.Core.Jellyfin;
 using Flurl;
 using MediatR;
@@ -19,11 +22,37 @@ public class ArtworkController : ControllerBase
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IMediator _mediator;
+    private readonly IChannelLogoGenerator _channelLogoGenerator;
 
-    public ArtworkController(IMediator mediator, IHttpClientFactory httpClientFactory)
+    public ArtworkController(
+        IMediator mediator,
+        IHttpClientFactory httpClientFactory,
+        IChannelLogoGenerator channelLogoGenerator)
     {
         _mediator = mediator;
         _httpClientFactory = httpClientFactory;
+        _channelLogoGenerator = channelLogoGenerator;
+    }
+
+    [HttpHead("/artwork/{id}")]
+    [HttpGet("/artwork/{id}")]
+    // This route redirect to the proper artwork from its Id
+    public async Task<IActionResult> RedirectArtwork(int id, CancellationToken cancellationToken) {
+        Either<BaseError, Artwork> artwork =
+            await _mediator.Send(new GetArtwork(id), cancellationToken);
+
+        return artwork.Match<IActionResult>(
+            Left: _ => new NotFoundResult(),
+            Right: r => r.ArtworkKind switch
+                {
+                    ArtworkKind.Poster    => new RedirectResult("/artwork/posters/" + r.Path),
+                    ArtworkKind.Thumbnail => new RedirectResult("/artwork/thumbnails/" + r.Path),
+                    ArtworkKind.Logo      => new RedirectResult("/iptv/logos/" + r.Path),
+                    ArtworkKind.FanArt    => new RedirectResult("/artwork/fanart/" + r.Path),
+                    ArtworkKind.Watermark => new RedirectResult("/artwork/watermarks/" + r.Path),
+                    _ => new NotFoundResult()
+                }
+            );
     }
 
     [HttpHead("/iptv/artwork/posters/{fileName}")]
@@ -231,4 +260,14 @@ public class ArtworkController : ControllerBase
             });
 #endif
     }
+
+    [HttpGet(ChannelLogoGenerator.GetRoute)]
+    public IActionResult GenerateChannelLogo(
+            string text,    // param name = ChannelLogoGenerator.GetRouteQueryParamName
+            CancellationToken cancellationToken) =>
+        _channelLogoGenerator
+            .GenerateChannelLogo(text, 100, 200, cancellationToken).Match<IActionResult>(
+                Left: _ => new RedirectResult("/iptv/images/ersatztv-500.png"),
+                Right: img => File(img, "image/png")
+            );
 }

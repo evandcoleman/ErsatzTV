@@ -58,7 +58,7 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
     {
         FFmpegCapability decodeCapability = _hardwareCapabilities.CanDecode(
             videoStream.Codec,
-            desiredState.VideoProfile,
+            videoStream.Profile,
             videoStream.PixelFormat);
         FFmpegCapability encodeCapability = _hardwareCapabilities.CanEncode(
             desiredState.VideoFormat,
@@ -170,7 +170,7 @@ public class NvidiaPipelineBuilder : SoftwarePipelineBuilder
         currentState = SetScale(videoInputFile, videoStream, context, ffmpegState, desiredState, currentState);
         currentState = SetPad(videoInputFile, videoStream, desiredState, currentState);
         currentState = SetCrop(videoInputFile, desiredState, currentState);
-        SetStillImageLoop(videoInputFile, videoStream, desiredState, pipelineSteps);
+        SetStillImageLoop(videoInputFile, videoStream, ffmpegState, desiredState, pipelineSteps);
 
         if (currentState.BitDepth == 8 && context.HasSubtitleOverlay || context.HasWatermark)
         {

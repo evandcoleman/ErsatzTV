@@ -1,36 +1,43 @@
 ﻿@page "/playouts"
-@using ErsatzTV.Application.Playouts
-@using ErsatzTV.Application.Scheduling
 @using ErsatzTV.Application.Configuration
+@using ErsatzTV.Application.Playouts
 @using ErsatzTV.Core.Scheduling
 @implements IDisposable
 @inject IDialogService Dialog
 @inject IMediator Mediator
-@inject ChannelWriter<IBackgroundServiceRequest> WorkerChannel;
+@inject ChannelWriter<IBackgroundServiceRequest> WorkerChannel
 @inject IEntityLocker EntityLocker;
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pt-8">
     <div>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Link="playouts/add">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="playouts/add">
             Add Playout
         </MudButton>
         <MudTooltip Text="This feature is experimental">
-            <MudButton Class="ml-3" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Warning" Link="@($"playouts/add/{PlayoutKind.Block}")">
+            <MudButton Class="ml-3" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Warning" Href="@($"playouts/add/{PlayoutKind.Block}")">
                 Add Block Playout
             </MudButton>
         </MudTooltip>
         <MudTooltip Text="This feature is experimental">
-            <MudButton Class="ml-3" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Warning" Link="@($"playouts/add/{PlayoutKind.ExternalJson}")">
+            <MudButton Class="ml-3" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Warning" Href="@($"playouts/add/{PlayoutKind.Yaml}")">
+                Add YAML Playout
+            </MudButton>
+        </MudTooltip>
+        <MudTooltip Text="This feature is experimental">
+            <MudButton Class="ml-3" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Warning" Href="@($"playouts/add/{PlayoutKind.ExternalJson}")">
                 Add External Json Playout
             </MudButton>
         </MudTooltip>
+        <MudButton Class="ml-3" Variant="Variant.Filled" Color="Color.Warning" StartIcon="@Icons.Material.Filled.Refresh" OnClick="@ResetAllPlayouts">
+            Reset All Playouts
+        </MudButton>
     </div>
     <MudTable Hover="true"
               Dense="true"
               Class="mt-4"
               SelectedItemChanged="@(async (PlayoutNameViewModel x) => await PlayoutSelected(x))"
               @bind-RowsPerPage="@_rowsPerPage"
-              ServerData="@(new Func<TableState, Task<TableData<PlayoutNameViewModel>>>(ServerReload))"
+              ServerData="@(new Func<TableState, CancellationToken, Task<TableData<PlayoutNameViewModel>>>(ServerReload))"
               @ref="_table">
         <ToolBarContent>
             <MudText Typo="Typo.h6">Playouts</MudText>
@@ -64,6 +71,9 @@
                     case ProgramSchedulePlayoutType.Block:
                         <span>Block</span>
                         break;
+                    case ProgramSchedulePlayoutType.Yaml:
+                        <span>YAML</span>
+                        break;
                     case ProgramSchedulePlayoutType.ExternalJson:
                         <span>External Json</span>
                         break;
@@ -82,12 +92,24 @@
                     </div>
                     @if (context.PlayoutType == ProgramSchedulePlayoutType.Flood)
                     {
-                        <MudTooltip Text="Edit Alternate Schedules">
-                            <MudIconButton Icon="@Icons.Material.Filled.EditCalendar"
-                                           Disabled="@EntityLocker.IsPlayoutLocked(context.PlayoutId)"
-                                           Link="@($"playouts/{context.PlayoutId}/alternate-schedules")">
-                            </MudIconButton>
-                        </MudTooltip>
+                        if (context.ProgressMode is ChannelProgressMode.OnDemand)
+                        {
+                            <MudTooltip Text="Alternate Schedules are not supported with On Demand progress">
+                                <MudIconButton Icon="@Icons.Material.Filled.EditCalendar"
+                                               Disabled="true">
+                                </MudIconButton>
+                            </MudTooltip>
+                        }
+                        else
+                        {
+                            <MudTooltip Text="Edit Alternate Schedules">
+                                <MudIconButton Icon="@Icons.Material.Filled.EditCalendar"
+                                               Disabled="@EntityLocker.IsPlayoutLocked(context.PlayoutId)"
+                                               Href="@($"playouts/{context.PlayoutId}/alternate-schedules")">
+                                </MudIconButton>
+                            </MudTooltip>
+                        }
+
                         <MudTooltip Text="Reset Playout">
                             <MudIconButton Icon="@Icons.Material.Filled.Refresh"
                                            Disabled="@EntityLocker.IsPlayoutLocked(context.PlayoutId)"
@@ -112,12 +134,28 @@
                         <div style="width: 48px"></div>
                         <div style="width: 48px"></div>
                     }
+                    else if (context.PlayoutType == ProgramSchedulePlayoutType.Yaml)
+                    {
+                        <MudTooltip Text="Edit Playout">
+                            <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                           Disabled="@EntityLocker.IsPlayoutLocked(context.PlayoutId)"
+                                           Href="@($"playouts/yaml/{context.PlayoutId}")">
+                            </MudIconButton>
+                        </MudTooltip>
+                        <MudTooltip Text="Reset Playout">
+                            <MudIconButton Icon="@Icons.Material.Filled.Refresh"
+                                           Disabled="@EntityLocker.IsPlayoutLocked(context.PlayoutId)"
+                                           OnClick="@(_ => ResetPlayout(context))">
+                            </MudIconButton>
+                        </MudTooltip>
+                        <div style="width: 48px"></div>
+                    }
                     else if (context.PlayoutType == ProgramSchedulePlayoutType.Block)
                     {
                         <MudTooltip Text="Edit Playout">
                             <MudIconButton Icon="@Icons.Material.Filled.Edit"
                                            Disabled="@EntityLocker.IsPlayoutLocked(context.PlayoutId)"
-                                           Link="@($"playouts/block/{context.PlayoutId}")">
+                                           Href="@($"playouts/block/{context.PlayoutId}")">
                             </MudIconButton>
                         </MudTooltip>
                         <MudTooltip Text="Reset Playout">
@@ -148,11 +186,11 @@
                   Hover="true"
                   Dense="true"
                   @bind-RowsPerPage="@_detailRowsPerPage"
-                  ServerData="@(new Func<TableState, Task<TableData<PlayoutItemViewModel>>>(DetailServerReload))"
+                  ServerData="@(new Func<TableState, CancellationToken, Task<TableData<PlayoutItemViewModel>>>(DetailServerReload))"
                   @ref="_detailTable">
             <ToolBarContent>
                 <MudText Typo="Typo.h6">Playout Detail</MudText>
-                <MudSwitch T="bool" Class="ml-6" @bind-Checked="@ShowFiller" Color="Color.Secondary" Label="Show Filler"/>
+                <MudSwitch T="bool" Class="ml-6" @bind-Value="@ShowFiller" Color="Color.Secondary" Label="Show Filler"/>
             </ToolBarContent>
             <HeaderContent>
                 <MudTh>Start</MudTh>
@@ -221,8 +259,8 @@
 
     private async Task PlayoutSelected(PlayoutNameViewModel playout)
     {
-        // only show details for flood and block playouts
-        _selectedPlayoutId = playout.PlayoutType is ProgramSchedulePlayoutType.Flood or ProgramSchedulePlayoutType.Block
+        // only show details for flood, block and YAML playouts
+        _selectedPlayoutId = playout.PlayoutType is ProgramSchedulePlayoutType.Flood or ProgramSchedulePlayoutType.Block or ProgramSchedulePlayoutType.Yaml
             ? playout.PlayoutId
             : null;
 
@@ -239,7 +277,7 @@
 
         IDialogReference dialog = await Dialog.ShowAsync<EditExternalJsonFileDialog>("Edit External Json File", parameters, options);
         DialogResult result = await dialog.Result;
-        if (!result.Canceled)
+        if (result is { Canceled: false })
         {
             await Mediator.Send(new UpdateExternalJsonPlayout(playout.PlayoutId, result.Data as string ?? playout.ExternalJsonFile), _cts.Token);
             if (_table != null)
@@ -258,7 +296,7 @@
 
         IDialogReference dialog = await Dialog.ShowAsync<DeleteDialog>("Delete Playout", parameters, options);
         DialogResult result = await dialog.Result;
-        if (!result.Canceled)
+        if (result is { Canceled: false })
         {
             await Mediator.Send(new DeletePlayout(playout.PlayoutId), _cts.Token);
             if (_table != null)
@@ -273,38 +311,18 @@
         }
     }
 
+    private async Task ResetAllPlayouts()
+    {
+        _selectedPlayoutId = null;
+        await Mediator.Send(new ResetAllPlayouts(), _cts.Token);
+    }
+
     private async Task ResetPlayout(PlayoutNameViewModel playout)
     {
         await WorkerChannel.WriteAsync(new BuildPlayout(playout.PlayoutId, PlayoutBuildMode.Reset), _cts.Token);
         if (_table != null)
         {
             await _table.ReloadServerData();
-        }
-
-        if (_selectedPlayoutId == playout.PlayoutId)
-        {
-            await PlayoutSelected(playout);
-        }
-    }
-
-    private async Task EraseItems(PlayoutNameViewModel playout)
-    {
-        if (playout.PlayoutType is ProgramSchedulePlayoutType.Block)
-        {
-            await Mediator.Send(new EraseBlockPlayoutItems(playout.PlayoutId), _cts.Token);
-        }
-
-        if (_selectedPlayoutId == playout.PlayoutId)
-        {
-            await PlayoutSelected(playout);
-        }
-    }
-
-    private async Task EraseHistory(PlayoutNameViewModel playout)
-    {
-        if (playout.PlayoutType is ProgramSchedulePlayoutType.Block)
-        {
-            await Mediator.Send(new EraseBlockPlayoutHistory(playout.PlayoutId), _cts.Token);
         }
 
         if (_selectedPlayoutId == playout.PlayoutId)
@@ -333,7 +351,7 @@
         }
     }
 
-    private async Task<TableData<PlayoutNameViewModel>> ServerReload(TableState state)
+    private async Task<TableData<PlayoutNameViewModel>> ServerReload(TableState state, CancellationToken cancellationToken)
     {
         await Mediator.Send(new SaveConfigElementByKey(ConfigElementKey.PlayoutsPageSize, state.PageSize.ToString()), _cts.Token);
 
@@ -358,7 +376,7 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task<TableData<PlayoutItemViewModel>> DetailServerReload(TableState state)
+    private async Task<TableData<PlayoutItemViewModel>> DetailServerReload(TableState state, CancellationToken cancellationToken)
     {
         await Mediator.Send(new SaveConfigElementByKey(ConfigElementKey.PlayoutsDetailPageSize, state.PageSize.ToString()), _cts.Token);
         await Mediator.Send(new SaveConfigElementByKey(ConfigElementKey.PlayoutsDetailShowFiller, _showFiller.ToString()), _cts.Token);

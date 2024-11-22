@@ -45,7 +45,7 @@ internal static class Mapper
         DateTime endTime = startTime.AddMinutes(templateItem.Block.Minutes);
         return new TemplateItemViewModel(templateItem.BlockId, templateItem.Block.Name, startTime, endTime);
     }
-    
+
     internal static DecoGroupViewModel ProjectToViewModel(DecoGroup decoGroup) =>
         new(decoGroup.Id, decoGroup.Name, decoGroup.Decos.Count);
 
@@ -56,6 +56,14 @@ internal static class Mapper
             deco.Name,
             deco.WatermarkMode,
             deco.WatermarkId,
+            deco.UseWatermarkDuringFiller,
+            deco.DefaultFillerMode,
+            deco.DefaultFillerCollectionType,
+            deco.DefaultFillerCollectionId,
+            deco.DefaultFillerMediaItemId,
+            deco.DefaultFillerMultiCollectionId,
+            deco.DefaultFillerSmartCollectionId,
+            deco.DefaultFillerTrimToFit,
             deco.DeadAirFallbackMode,
             deco.DeadAirFallbackCollectionType,
             deco.DeadAirFallbackCollectionId,
@@ -80,6 +88,11 @@ internal static class Mapper
     {
         DateTime startTime = DateTime.Today.Add(decoTemplateItem.StartTime);
         DateTime endTime = DateTime.Today.Add(decoTemplateItem.EndTime);
+        if (startTime > endTime)
+        {
+            endTime = endTime.AddDays(1);
+        }
+
         return new DecoTemplateItemViewModel(decoTemplateItem.DecoId, decoTemplateItem.Deco.Name, startTime, endTime);
     }
 
@@ -103,5 +116,5 @@ internal static class Mapper
             Playouts.Mapper.GetDisplayTitle(playoutItem),
             playoutItem.StartOffset.TimeOfDay,
             playoutItem.FinishOffset.TimeOfDay,
-            Playouts.Mapper.GetDisplayDuration(playoutItem.FinishOffset - playoutItem.StartOffset));
+            playoutItem.GetDisplayDuration());
 }

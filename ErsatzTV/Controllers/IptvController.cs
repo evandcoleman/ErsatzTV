@@ -36,6 +36,7 @@ public class IptvController : ControllerBase
         _ffmpegSegmenterService = ffmpegSegmenterService;
     }
 
+    [HttpHead("iptv/channels.m3u")]
     [HttpGet("iptv/channels.m3u")]
     public Task<IActionResult> GetChannelPlaylist(
         [FromQuery]
@@ -50,6 +51,7 @@ public class IptvController : ControllerBase
                     Request.Query["access_token"]))
             .Map<ChannelPlaylist, IActionResult>(Ok);
 
+    [HttpHead("iptv/xmltv.xml")]
     [HttpGet("iptv/xmltv.xml")]
     public Task<IActionResult> GetGuide() =>
         _mediator.Send(
@@ -60,6 +62,7 @@ public class IptvController : ControllerBase
                     Request.Query["access_token"]))
             .ToActionResult();
 
+    [HttpHead("iptv/hdhr/channel/{channelNumber}.ts")]
     [HttpGet("iptv/hdhr/channel/{channelNumber}.ts")]
     public Task<IActionResult> GetHDHRVideo(string channelNumber, [FromQuery] string mode = "ts")
     {
@@ -72,6 +75,7 @@ public class IptvController : ControllerBase
         return GetTransportStreamVideo(channelNumber, mode);
     }
 
+    [HttpHead("iptv/channel/{channelNumber}.ts")]
     [HttpGet("iptv/channel/{channelNumber}.ts")]
     public async Task<IActionResult> GetTransportStreamVideo(
         string channelNumber,
@@ -101,7 +105,11 @@ public class IptvController : ControllerBase
         FFmpegProcessRequest request = mode switch
         {
             "ts-legacy" => new GetConcatProcessByChannelNumber(Request.Scheme, Request.Host.ToString(), channelNumber),
-            _ => new GetWrappedProcessByChannelNumber(Request.Scheme, Request.Host.ToString(), Request.Query["access_token"], channelNumber)
+            _ => new GetWrappedProcessByChannelNumber(
+                Request.Scheme,
+                Request.Host.ToString(),
+                Request.Query["access_token"],
+                channelNumber)
         };
 
         return await _mediator.Send(request)
@@ -138,6 +146,7 @@ public class IptvController : ControllerBase
                     error => BadRequest(error.Value)));
     }
 
+    [HttpHead("iptv/session/{channelNumber}/hls.m3u8")]
     [HttpGet("iptv/session/{channelNumber}/hls.m3u8")]
     public async Task<IActionResult> GetLivePlaylist(string channelNumber, CancellationToken cancellationToken)
     {
@@ -159,8 +168,8 @@ public class IptvController : ControllerBase
             return NotFound();
         }
 
-        _logger.LogWarning("Unable to locate session worker for channel {Channel}", channelNumber);
-        return NotFound();
+        _logger.LogWarning("Unable to locate session worker for channel {Channel}; will redirect to start session", channelNumber);
+        return RedirectToAction(nameof(GetHttpLiveStreamingVideo), new { channelNumber });
     }
 
     [HttpHead("iptv/channel/{channelNumber}.m3u8")]
@@ -247,6 +256,7 @@ public class IptvController : ControllerBase
         }
     }
 
+    [HttpHead("iptv/logos/{fileName}")]
     [HttpGet("iptv/logos/{fileName}")]
     [HttpHead("iptv/logos/{fileName}.jpg")]
     [HttpGet("iptv/logos/{fileName}.jpg")]
@@ -271,7 +281,7 @@ public class IptvController : ControllerBase
 
         var variantPlaylist =
             $"{Request.Scheme}://{Request.Host}/iptv/session/{channelNumber}/{file}{AccessTokenQuery()}";
-        
+
         try
         {
             if (mode == "segmenter-v2")
@@ -290,7 +300,7 @@ public class IptvController : ControllerBase
                 ex,
                 "Failed to return ffmpeg multi-variant playlist; falling back to generated playlist");
         }
-        
+
         Option<ResolutionViewModel> maybeResolution = await _mediator.Send(new GetChannelResolution(channelNumber));
         string resolution = string.Empty;
         foreach (ResolutionViewModel res in maybeResolution)

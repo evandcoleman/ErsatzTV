@@ -1,12 +1,12 @@
 ﻿@page "/media/libraries"
-@using PlexLibraryViewModel = ErsatzTV.Application.Libraries.PlexLibraryViewModel
+@using ErsatzTV.Application.Emby
+@using ErsatzTV.Application.Jellyfin
 @using ErsatzTV.Application.Libraries
 @using ErsatzTV.Application.MediaSources
 @using ErsatzTV.Application.Plex
 @using ErsatzTV.Core.Metadata
 @using MediatR.Courier
-@using ErsatzTV.Application.Jellyfin
-@using ErsatzTV.Application.Emby
+@using PlexLibraryViewModel = ErsatzTV.Application.Libraries.PlexLibraryViewModel
 @implements IDisposable
 @inject IMediator Mediator
 @inject IEntityLocker Locker
@@ -87,7 +87,7 @@
                     }
                     <MudTooltip Text="Search Library">
                         <MudIconButton Icon="@Icons.Material.Filled.Search"
-                                       Link="@($"search?query=library_id%3a{context.Id}")">
+                                       Href="@($"search?query=library_id%3a{context.Id}")">
                         </MudIconButton>
                     </MudTooltip>
                 </div>

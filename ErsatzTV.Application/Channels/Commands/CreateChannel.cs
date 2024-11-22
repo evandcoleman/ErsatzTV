@@ -12,10 +12,12 @@ public record CreateChannel(
     string Logo,
     string PreferredAudioLanguageCode,
     string PreferredAudioTitle,
+    ChannelProgressMode ProgressMode,
     StreamingMode StreamingMode,
     int? WatermarkId,
     int? FallbackFillerId,
     string PreferredSubtitleLanguageCode,
     ChannelSubtitleMode SubtitleMode,
     ChannelMusicVideoCreditsMode MusicVideoCreditsMode,
-    string MusicVideoCreditsTemplate) : IRequest<Either<BaseError, CreateChannelResult>>;
+    string MusicVideoCreditsTemplate,
+    ChannelSongVideoMode SongVideoMode) : IRequest<Either<BaseError, CreateChannelResult>>;

@@ -1,4 +1,4 @@
-﻿using Dapper;
+using Dapper;
 using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Extensions;
 using ErsatzTV.Core.Interfaces.Repositories;
@@ -304,6 +304,11 @@ public class MetadataRepository : IMetadataRepository
                             VALUES (@ArtworkKind, @Id, @DateAdded, @DateUpdated, @Path, @SourcePath, @BlurHash43, @BlurHash54, @BlurHash64)",
                     parameters)
                 .ToUnit(),
+            OtherVideoMetadata => await dbContext.Connection.ExecuteAsync(
+                    @"INSERT INTO Artwork (ArtworkKind, OtherVideoMetadataId, DateAdded, DateUpdated, Path, SourcePath, BlurHash43, BlurHash54, BlurHash64)
+                            VALUES (@ArtworkKind, @Id, @DateAdded, @DateUpdated, @Path, @SourcePath, @BlurHash43, @BlurHash54, @BlurHash64)",
+                    parameters)
+                .ToUnit(),
             _ => Unit.Default
         };
     }
@@ -313,7 +318,7 @@ public class MetadataRepository : IMetadataRepository
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
         return await dbContext.Connection.ExecuteAsync(
             @"DELETE FROM Artwork WHERE ArtworkKind = @ArtworkKind AND (MovieMetadataId = @Id
-                OR ShowMetadataId = @Id OR SeasonMetadataId = @Id OR EpisodeMetadataId = @Id)",
+                OR ShowMetadataId = @Id OR SeasonMetadataId = @Id OR EpisodeMetadataId = @Id OR OtherVideoMetadataId = @Id)",
             new { ArtworkKind = artworkKind, metadata.Id }).ToUnit();
     }
 
@@ -424,6 +429,30 @@ public class MetadataRepository : IMetadataRepository
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
         return await dbContext.Connection.ExecuteAsync(
             @"UPDATE MovieMetadata SET ContentRating = @ContentRating WHERE Id = @Id",
+            new { metadata.Id, ContentRating = contentRating }).ToUnit();
+    }
+
+    public async Task<Unit> MarkAsUpdated(OtherVideoMetadata metadata, DateTime dateUpdated)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+        return await dbContext.Connection.ExecuteAsync(
+            @"UPDATE OtherVideoMetadata SET DateUpdated = @DateUpdated WHERE Id = @Id",
+            new { DateUpdated = dateUpdated, metadata.Id }).ToUnit();
+    }
+
+    public async Task<Unit> MarkAsExternal(OtherVideoMetadata metadata)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+        return await dbContext.Connection.ExecuteAsync(
+            @"UPDATE OtherVideoMetadata SET MetadataKind = @Kind WHERE Id = @Id",
+            new { metadata.Id, Kind = (int)MetadataKind.External }).ToUnit();
+    }
+
+    public async Task<Unit> SetContentRating(OtherVideoMetadata metadata, string contentRating)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+        return await dbContext.Connection.ExecuteAsync(
+            @"UPDATE OtherVideoMetadata SET ContentRating = @ContentRating WHERE Id = @Id",
             new { metadata.Id, ContentRating = contentRating }).ToUnit();
     }
 

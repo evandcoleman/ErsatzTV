@@ -38,7 +38,7 @@ public class PlexEtag
             {
                 bw.Write((byte)FieldKey.Key);
                 bw.Write(part.Key);
-                
+
                 bw.Write((byte)FieldKey.PartId);
                 bw.Write(part.Id);
 
@@ -219,7 +219,7 @@ public class PlexEtag
             {
                 bw.Write((byte)FieldKey.Key);
                 bw.Write(part.Key);
-                
+
                 bw.Write((byte)FieldKey.PartId);
                 bw.Write(part.Id);
 
@@ -305,7 +305,7 @@ public class PlexEtag
         bw.Write(response.UpdatedAt);
 
         // collection child count
-        bw.Write(response.ChildCount ?? "0");
+        bw.Write(response.ChildCount);
 
         // collection is smart collection
         bw.Write(response.Smart ?? "0");

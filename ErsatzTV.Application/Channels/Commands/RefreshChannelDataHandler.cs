@@ -7,6 +7,7 @@ using ErsatzTV.Core.Domain.Filler;
 using ErsatzTV.Core.Emby;
 using ErsatzTV.Core.Interfaces.Metadata;
 using ErsatzTV.Core.Interfaces.Repositories;
+using ErsatzTV.Core.Iptv;
 using ErsatzTV.Core.Jellyfin;
 using ErsatzTV.Core.Streaming;
 using ErsatzTV.Infrastructure.Data;
@@ -170,18 +171,19 @@ public class RefreshChannelDataHandler : IRequestHandler<RefreshChannelData>
         await using var xml = XmlWriter.Create(
             ms,
             new XmlWriterSettings { Async = true, ConformanceLevel = ConformanceLevel.Fragment });
-        
+
         int daysToBuild = await _configElementRepository
             .GetValue<int>(ConfigElementKey.XmltvDaysToBuild)
             .IfNoneAsync(2);
 
         DateTimeOffset finish = DateTimeOffset.UtcNow.AddDays(daysToBuild);
-        
+
         foreach (Playout playout in playouts)
         {
             switch (playout.ProgramSchedulePlayoutType)
             {
                 case ProgramSchedulePlayoutType.Flood:
+                case ProgramSchedulePlayoutType.Yaml:
                     var floodSorted = playouts
                         .Collect(p => p.Items)
                         .OrderBy(pi => pi.Start)
@@ -285,7 +287,7 @@ public class RefreshChannelDataHandler : IRequestHandler<RefreshChannelData>
             int finishIndex = j;
             while (finishIndex + 1 < sorted.Count && (sorted[finishIndex + 1].GuideGroup == startItem.GuideGroup
                                                       || sorted[finishIndex + 1].FillerKind is FillerKind.GuideMode
-                                                          or FillerKind.Tail or FillerKind.Fallback))
+                                                          or FillerKind.Tail or FillerKind.Fallback or FillerKind.DecoDefault))
             {
                 finishIndex++;
             }
@@ -367,6 +369,11 @@ public class RefreshChannelDataHandler : IRequestHandler<RefreshChannelData>
             TimeSpan groupDuration = groupFinish - groupStart;
 
             var itemsToInclude = group.Filter(g => g.FillerKind is FillerKind.None).ToList();
+            if (itemsToInclude.Count == 0)
+            {
+                continue;
+            }
+
             TimeSpan perItem = groupDuration / itemsToInclude.Count;
 
             DateTimeOffset currentStart = new DateTimeOffset(groupStart, TimeSpan.Zero).ToLocalTime();
@@ -508,6 +515,8 @@ public class RefreshChannelDataHandler : IRequestHandler<RefreshChannelData>
             {
                 ProgrammeStart = start,
                 ProgrammeStop = stop,
+                ChannelId = ChannelIdentifier.FromNumber(request.ChannelNumber),
+                ChannelIdLegacy = ChannelIdentifier.LegacyFromNumber(request.ChannelNumber),
                 request.ChannelNumber,
                 HasCustomTitle = hasCustomTitle,
                 displayItem.CustomTitle,
@@ -563,6 +572,8 @@ public class RefreshChannelDataHandler : IRequestHandler<RefreshChannelData>
                 {
                     ProgrammeStart = start,
                     ProgrammeStop = stop,
+                    ChannelId = ChannelIdentifier.FromNumber(request.ChannelNumber),
+                    ChannelIdLegacy = ChannelIdentifier.LegacyFromNumber(request.ChannelNumber),
                     request.ChannelNumber,
                     HasCustomTitle = hasCustomTitle,
                     displayItem.CustomTitle,
@@ -623,6 +634,8 @@ public class RefreshChannelDataHandler : IRequestHandler<RefreshChannelData>
             {
                 ProgrammeStart = start,
                 ProgrammeStop = stop,
+                ChannelId = ChannelIdentifier.FromNumber(request.ChannelNumber),
+                ChannelIdLegacy = ChannelIdentifier.LegacyFromNumber(request.ChannelNumber),
                 request.ChannelNumber,
                 HasCustomTitle = hasCustomTitle,
                 displayItem.CustomTitle,
@@ -680,6 +693,8 @@ public class RefreshChannelDataHandler : IRequestHandler<RefreshChannelData>
             {
                 ProgrammeStart = start,
                 ProgrammeStop = stop,
+                ChannelId = ChannelIdentifier.FromNumber(request.ChannelNumber),
+                ChannelIdLegacy = ChannelIdentifier.LegacyFromNumber(request.ChannelNumber),
                 request.ChannelNumber,
                 HasCustomTitle = hasCustomTitle,
                 displayItem.CustomTitle,
@@ -732,6 +747,8 @@ public class RefreshChannelDataHandler : IRequestHandler<RefreshChannelData>
             {
                 ProgrammeStart = start,
                 ProgrammeStop = stop,
+                ChannelId = ChannelIdentifier.FromNumber(request.ChannelNumber),
+                ChannelIdLegacy = ChannelIdentifier.LegacyFromNumber(request.ChannelNumber),
                 request.ChannelNumber,
                 HasCustomTitle = hasCustomTitle,
                 displayItem.CustomTitle,
@@ -951,68 +968,6 @@ public class RefreshChannelDataHandler : IRequestHandler<RefreshChannelData>
         };
     }
 
-    private static string GetDescription(PlayoutItem playoutItem)
-    {
-        if (!string.IsNullOrWhiteSpace(playoutItem.CustomTitle))
-        {
-            return string.Empty;
-        }
-
-        return playoutItem.MediaItem switch
-        {
-            Movie m => m.MovieMetadata.HeadOrNone().Map(mm => mm.Plot ?? string.Empty).IfNone(string.Empty),
-            Episode e => e.EpisodeMetadata.HeadOrNone().Map(em => em.Plot ?? string.Empty)
-                .IfNone(string.Empty),
-            MusicVideo mv => mv.MusicVideoMetadata.HeadOrNone().Map(mvm => mvm.Plot ?? string.Empty)
-                .IfNone(string.Empty),
-            OtherVideo ov => ov.OtherVideoMetadata.HeadOrNone().Map(ovm => ovm.Plot ?? string.Empty)
-                .IfNone(string.Empty),
-            _ => string.Empty
-        };
-    }
-
-    private Option<ContentRating> GetContentRating(PlayoutItem playoutItem)
-    {
-        try
-        {
-            return playoutItem.MediaItem switch
-            {
-                Movie m => m.MovieMetadata
-                    .HeadOrNone()
-                    .Match(mm => ParseContentRating(mm.ContentRating, "MPAA"), () => None),
-                Episode e => e.Season.Show.ShowMetadata
-                    .HeadOrNone()
-                    .Match(sm => ParseContentRating(sm.ContentRating, "VCHIP"), () => None),
-                _ => None
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to get content rating for playout item {Item}", GetTitle(playoutItem));
-            return None;
-        }
-    }
-
-    private static Option<ContentRating> ParseContentRating(string contentRating, string system)
-    {
-        Option<string> maybeFirst = (contentRating ?? string.Empty).Split('/').HeadOrNone();
-        return maybeFirst.Map(
-            first =>
-            {
-                string[] split = first.Split(':');
-                if (split.Length == 2)
-                {
-                    return split[0].Equals("us", StringComparison.OrdinalIgnoreCase)
-                        ? new ContentRating(system, split[1].ToUpperInvariant())
-                        : new ContentRating(None, split[1].ToUpperInvariant());
-                }
-
-                return string.IsNullOrWhiteSpace(first)
-                    ? Option<ContentRating>.None
-                    : new ContentRating(None, first);
-            }).Flatten();
-    }
-
     private static string GetPrioritizedArtworkPath(Metadata metadata)
     {
         Option<string> maybeArtwork = Optional(metadata.Artwork).Flatten()
@@ -1174,6 +1129,4 @@ public class RefreshChannelDataHandler : IRequestHandler<RefreshChannelData>
             ]
         };
     }
-
-    private sealed record ContentRating(Option<string> System, string Value);
 }

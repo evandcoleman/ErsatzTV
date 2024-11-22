@@ -60,7 +60,7 @@ public class QsvPipelineBuilder : SoftwarePipelineBuilder
     {
         FFmpegCapability decodeCapability = _hardwareCapabilities.CanDecode(
             videoStream.Codec,
-            desiredState.VideoProfile,
+            videoStream.Profile,
             videoStream.PixelFormat);
         FFmpegCapability encodeCapability = _hardwareCapabilities.CanEncode(
             desiredState.VideoFormat,
@@ -175,7 +175,7 @@ public class QsvPipelineBuilder : SoftwarePipelineBuilder
         currentState = SetPad(videoInputFile, videoStream, desiredState, currentState);
         // _logger.LogDebug("After pad: {PixelFormat}", currentState.PixelFormat);
         currentState = SetCrop(videoInputFile, desiredState, currentState);
-        SetStillImageLoop(videoInputFile, videoStream, desiredState, pipelineSteps);
+        SetStillImageLoop(videoInputFile, videoStream, ffmpegState, desiredState, pipelineSteps);
 
         // need to download for any sort of overlay
         if (currentState.FrameDataLocation == FrameDataLocation.Hardware &&
@@ -572,11 +572,18 @@ public class QsvPipelineBuilder : SoftwarePipelineBuilder
     {
         IPipelineFilterStep scaleStep;
 
-        if (currentState.ScaledSize != desiredState.ScaledSize && ffmpegState is
-            {
-                DecoderHardwareAccelerationMode: HardwareAccelerationMode.None,
-                EncoderHardwareAccelerationMode: HardwareAccelerationMode.None
-            } && context is { HasWatermark: false, HasSubtitleOverlay: false, ShouldDeinterlace: false })
+        bool useSoftwareFilter = ffmpegState is
+        {
+            DecoderHardwareAccelerationMode: HardwareAccelerationMode.None,
+            EncoderHardwareAccelerationMode: HardwareAccelerationMode.None
+        } && context is { HasWatermark: false, HasSubtitleOverlay: false, ShouldDeinterlace: false };
+
+        // auto_scale filter seems to muck up 10-bit software decode => hardware scale, so use software scale in that case
+        useSoftwareFilter = useSoftwareFilter ||
+                            (ffmpegState is { DecoderHardwareAccelerationMode: HardwareAccelerationMode.None } &&
+                             OperatingSystem.IsWindows() && currentState.BitDepth == 10);
+
+        if (currentState.ScaledSize != desiredState.ScaledSize && useSoftwareFilter)
         {
             scaleStep = new ScaleFilter(
                 currentState,

@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using ErsatzTV.Core;
 
 namespace ErsatzTV.Services.RunOnce;
@@ -17,11 +17,14 @@ public class ResourceExtractorService : BackgroundService
         Assembly assembly = typeof(ResourceExtractorService).GetTypeInfo().Assembly;
 
         await ExtractResource(assembly, "background.png", stoppingToken);
+        await ExtractResource(assembly, "song_album_cover_512.png", stoppingToken);
         await ExtractResource(assembly, "song_background_1.png", stoppingToken);
         await ExtractResource(assembly, "song_background_2.png", stoppingToken);
         await ExtractResource(assembly, "song_background_3.png", stoppingToken);
+        await ExtractResource(assembly, "song_progress_overlay.png", stoppingToken);
         await ExtractResource(assembly, "ErsatzTV.png", stoppingToken);
 
+        await ExtractFontResource(assembly, "Sen.ttf", stoppingToken);
         await ExtractFontResource(assembly, "Roboto-Regular.ttf", stoppingToken);
         await ExtractFontResource(assembly, "OPTIKabel-Heavy.otf", stoppingToken);
 

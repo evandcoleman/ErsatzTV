@@ -2,6 +2,7 @@ using System.Globalization;
 using Bugsnag;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Aggregations;
+using Elastic.Clients.Elasticsearch.Core.Bulk;
 using Elastic.Clients.Elasticsearch.IndexManagement;
 using ErsatzTV.Core.Domain;
 using ErsatzTV.Core.Interfaces.Metadata;
@@ -46,7 +47,7 @@ public class ElasticSearchIndex : ISearchIndex
         return exists.IsValidResponse;
     }
 
-    public int Version => 43;
+    public int Version => 44;
 
     public async Task<bool> Initialize(
         ILocalFileSystem localFileSystem,
@@ -146,15 +147,17 @@ public class ElasticSearchIndex : ISearchIndex
         return Unit.Default;
     }
 
-    public async Task<Unit> RemoveItems(IEnumerable<int> ids)
+    public async Task<bool> RemoveItems(IEnumerable<int> ids)
     {
-        await _client.BulkAsync(
-            descriptor => descriptor
-                .Index(IndexName)
-                .DeleteMany(ids.Map(id => new Id(id)))
-        );
+        var deleteBulkRequest = new BulkRequest { Operations = [] };
+        foreach (int id in ids)
+        {
+            var deleteOperation = new BulkDeleteOperation<ElasticSearchItem>(new Id(id)) { Index = IndexName };
+            deleteBulkRequest.Operations.Add(deleteOperation);
+        }
 
-        return Unit.Default;
+        BulkResponse deleteResponse = await _client.BulkAsync(deleteBulkRequest).ConfigureAwait(false);
+        return deleteResponse.IsValidResponse;
     }
 
     public async Task<SearchResult> Search(IClient client, string query, int skip, int limit)
@@ -852,7 +855,7 @@ public class ElasticSearchIndex : ISearchIndex
     private async Task<List<string>> GetLanguages(ISearchRepository searchRepository, List<string> mediaCodes)
     {
         var englishNames = new System.Collections.Generic.HashSet<string>();
-        foreach (string code in await searchRepository.GetAllLanguageCodes(mediaCodes))
+        foreach (string code in await searchRepository.GetAllThreeLetterLanguageCodes(mediaCodes))
         {
             Option<CultureInfo> maybeCultureInfo = _cultureInfos.Find(
                 ci => string.Equals(ci.ThreeLetterISOLanguageName, code, StringComparison.OrdinalIgnoreCase));
@@ -908,6 +911,11 @@ public class ElasticSearchIndex : ISearchIndex
                 foreach (IPixelFormat pixelFormat in maybePixelFormat)
                 {
                     doc.VideoBitDepth = pixelFormat.BitDepth;
+                }
+
+                if (maybePixelFormat.IsNone && videoStream.BitsPerRawSample > 0)
+                {
+                    doc.VideoBitDepth = videoStream.BitsPerRawSample;
                 }
 
                 var colorParams = new ColorParams(

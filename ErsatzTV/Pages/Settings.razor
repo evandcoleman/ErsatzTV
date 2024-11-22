@@ -1,11 +1,11 @@
-﻿@page "/settings"
+@page "/settings"
+@using ErsatzTV.Application.Configuration
 @using ErsatzTV.Application.FFmpegProfiles
 @using ErsatzTV.Application.Filler
 @using ErsatzTV.Application.HDHR
 @using ErsatzTV.Application.MediaItems
 @using ErsatzTV.Application.Resolutions
 @using ErsatzTV.Application.Watermarks
-@using ErsatzTV.Application.Configuration
 @using ErsatzTV.Core.Domain.Filler
 @using ErsatzTV.FFmpeg.OutputFormat
 @using Serilog.Events
@@ -47,20 +47,20 @@
                 <MudSwitch T="bool"
                            Label="Use embedded subtitles"
                            Color="Color.Primary"
-                           @bind-Checked="@_ffmpegSettings.UseEmbeddedSubtitles"/>
+                           @bind-Value="@_ffmpegSettings.UseEmbeddedSubtitles"/>
             </MudElement>
             <MudElement HtmlTag="div" Class="mt-3">
                 <MudSwitch T="bool"
                            Label="Extract and use embedded (text) subtitles"
                            Color="Color.Primary"
-                           @bind-Checked="@_ffmpegSettings.ExtractEmbeddedSubtitles"
+                           @bind-Value="@_ffmpegSettings.ExtractEmbeddedSubtitles"
                            Disabled="@(_ffmpegSettings.UseEmbeddedSubtitles == false)"/>
             </MudElement>
             <MudElement HtmlTag="div" Class="mt-3">
                 <MudSwitch T="bool"
                            Label="Save troubleshooting reports to disk"
                            Color="Color.Primary"
-                           @bind-Checked="@_ffmpegSettings.SaveReports"/>
+                           @bind-Value="@_ffmpegSettings.SaveReports"/>
             </MudElement>
             <MudSelect Class="mt-3"
                        Label="Global Watermark"
@@ -191,7 +191,10 @@
             <CardHeaderContent>
                 <MudText Typo="Typo.h6">HDHomeRun Settings</MudText>
             </CardHeaderContent>
-        </MudCardHeader>
+				</MudCardHeader>
+				<MudCardContent>
+					<MudTextField T="Guid" Label="UUID" @bind-Value="_uuid" ReadOnly="true" Disabled="true" />
+				</MudCardContent>
         <MudCardContent>
             <MudForm @bind-IsValid="@_hdhrSuccess">
                 <MudTextField T="int" Label="Tuner Count" @bind-Value="_tunerCount" Validation="@(new Func<int, string>(ValidateTunerCount))" Required="true" RequiredError="Tuner count is required!"/>
@@ -242,7 +245,7 @@
                 <MudElement HtmlTag="div" Class="mt-3">
                     <MudTooltip Text="Controls whether file-not-found or unavailable items should be included in playouts">
                         <MudCheckBox Label="Skip Missing Items"
-                                     @bind-Checked="_playoutSettings.SkipMissingItems"
+                                     @bind-Value="_playoutSettings.SkipMissingItems"
                                      For="@(() => _playoutSettings.SkipMissingItems)"/>
                     </MudTooltip>
                 </MudElement>
@@ -325,42 +328,44 @@
 </MudContainer>
 
 @code {
-    private readonly CancellationTokenSource _cts = new();
+	private readonly CancellationTokenSource _cts = new();
 
-    private bool _success;
-    private bool _hdhrSuccess;
-    private bool _scannerSuccess;
-    private bool _playoutSuccess;
-    private List<FFmpegProfileViewModel> _ffmpegProfiles = new();
-    private FFmpegSettingsViewModel _ffmpegSettings = new();
-    private List<LanguageCodeViewModel> _availableCultures = new();
-    private List<WatermarkViewModel> _watermarks = new();
-    private List<FillerPresetViewModel> _fillerPresets = new();
-    private List<ResolutionViewModel> _customResolutions = new();
-    private int _tunerCount;
-    private int _libraryRefreshInterval;
-    private PlayoutSettingsViewModel _playoutSettings = new();
-    private GeneralSettingsViewModel _generalSettings = new();
-    private XmltvSettingsViewModel _xmltvSettings = new();
+	private bool _success;
+	private bool _hdhrSuccess;
+	private bool _scannerSuccess;
+	private bool _playoutSuccess;
+	private List<FFmpegProfileViewModel> _ffmpegProfiles = new();
+	private FFmpegSettingsViewModel _ffmpegSettings = new();
+	private List<LanguageCodeViewModel> _availableCultures = new();
+	private List<WatermarkViewModel> _watermarks = new();
+	private List<FillerPresetViewModel> _fillerPresets = new();
+	private List<ResolutionViewModel> _customResolutions = new();
+	private int _tunerCount;
+	private int _libraryRefreshInterval;
+	private PlayoutSettingsViewModel _playoutSettings = new();
+	private GeneralSettingsViewModel _generalSettings = new();
+	private XmltvSettingsViewModel _xmltvSettings = new();
+	private Guid _uuid;
 
-    public void Dispose()
-    {
-        _cts.Cancel();
-        _cts.Dispose();
-    }
+	public void Dispose()
+	{
+		_cts.Cancel();
+		_cts.Dispose();
+	}
 
-    protected override async Task OnParametersSetAsync()
-    {
-        await LoadFFmpegProfilesAsync();
+	protected override async Task OnParametersSetAsync()
+	{
+		await LoadFFmpegProfilesAsync();
 
-        _ffmpegSettings = await Mediator.Send(new GetFFmpegSettings(), _cts.Token);
-        _success = File.Exists(_ffmpegSettings.FFmpegPath) && File.Exists(_ffmpegSettings.FFprobePath);
-        _availableCultures = await Mediator.Send(new GetAllLanguageCodes(), _cts.Token);
-        _watermarks = await Mediator.Send(new GetAllWatermarks(), _cts.Token);
-        _fillerPresets = await Mediator.Send(new GetAllFillerPresets(), _cts.Token)
-            .Map(list => list.Filter(fp => fp.FillerKind == FillerKind.Fallback).ToList());
-        _tunerCount = await Mediator.Send(new GetHDHRTunerCount(), _cts.Token);
-        _hdhrSuccess = string.IsNullOrWhiteSpace(ValidateTunerCount(_tunerCount));
+		_ffmpegSettings = await Mediator.Send(new GetFFmpegSettings(), _cts.Token);
+		_success = File.Exists(_ffmpegSettings.FFmpegPath) && File.Exists(_ffmpegSettings.FFprobePath);
+		_availableCultures = await Mediator.Send(new GetAllLanguageCodes(), _cts.Token);
+		_watermarks = await Mediator.Send(new GetAllWatermarks(), _cts.Token);
+		_fillerPresets = await Mediator.Send(new GetAllFillerPresets(), _cts.Token)
+			.Map(list => list.Filter(fp => fp.FillerKind == FillerKind.Fallback).ToList());
+		_tunerCount = await Mediator.Send(new GetHDHRTunerCount(), _cts.Token);
+		_uuid = await Mediator.Send(new GetHDHRUUID(), _cts.Token);
+		_hdhrSuccess = string.IsNullOrWhiteSpace(ValidateTunerCount(_tunerCount));
         _libraryRefreshInterval = await Mediator.Send(new GetLibraryRefreshInterval(), _cts.Token);
         _scannerSuccess = _libraryRefreshInterval is >= 0 and < 1_000_000;
         _playoutSettings = await Mediator.Send(new GetPlayoutSettings(), _cts.Token);

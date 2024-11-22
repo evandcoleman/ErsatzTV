@@ -47,7 +47,6 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                 case ProgramScheduleItemCollectionType.Collection:
                     foreach (int collectionId in Optional(playlistItem.CollectionId))
                     {
-
                         mediaItems.AddRange(await GetMovieItems(dbContext, collectionId));
                         mediaItems.AddRange(await GetShowItems(dbContext, collectionId));
                         mediaItems.AddRange(await GetSeasonItems(dbContext, collectionId));
@@ -100,7 +99,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                     }
 
                     break;
-                
+
                 case ProgramScheduleItemCollectionType.Movie:
                     foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
                     {
@@ -132,7 +131,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                     }
 
                     break;
-                
+
                 case ProgramScheduleItemCollectionType.Song:
                     foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
                     {
@@ -140,7 +139,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                     }
 
                     break;
-                
+
                 case ProgramScheduleItemCollectionType.Image:
                     foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
                     {
@@ -154,6 +153,21 @@ public class MediaCollectionRepository : IMediaCollectionRepository
         }
 
         return result;
+    }
+
+    public async Task<Dictionary<PlaylistItem, List<MediaItem>>> GetPlaylistItemMap(string groupName, string name)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+        Option<Playlist> maybePlaylist = await dbContext.Playlists
+            .SelectOneAsync(p => p.Name, p => EF.Functions.Collate(p.Name, TvContext.CaseInsensitiveCollation) == name);
+
+        foreach (Playlist playlist in maybePlaylist)
+        {
+            return await GetPlaylistItemMap(playlist.Id);
+        }
+
+        return [];
     }
 
     public async Task<Dictionary<PlaylistItem, List<MediaItem>>> GetPlaylistItemMap(Playlist playlist)
@@ -171,7 +185,6 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                 case ProgramScheduleItemCollectionType.Collection:
                     foreach (int collectionId in Optional(playlistItem.CollectionId))
                     {
-
                         mediaItems.AddRange(await GetMovieItems(dbContext, collectionId));
                         mediaItems.AddRange(await GetShowItems(dbContext, collectionId));
                         mediaItems.AddRange(await GetSeasonItems(dbContext, collectionId));
@@ -224,7 +237,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                     }
 
                     break;
-                
+
                 case ProgramScheduleItemCollectionType.Movie:
                     foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
                     {
@@ -256,7 +269,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                     }
 
                     break;
-                
+
                 case ProgramScheduleItemCollectionType.Song:
                     foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
                     {
@@ -264,7 +277,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                     }
 
                     break;
-                
+
                 case ProgramScheduleItemCollectionType.Image:
                     foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
                     {
@@ -309,6 +322,21 @@ public class MediaCollectionRepository : IMediaCollectionRepository
         return result.Distinct().ToList();
     }
 
+    public async Task<List<MediaItem>> GetCollectionItemsByName(string name)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+        Option<Collection> maybeCollection = await dbContext.Collections
+            .SelectOneAsync(c => c.Name, c => EF.Functions.Collate(c.Name, TvContext.CaseInsensitiveCollation) == name);
+
+        foreach (Collection collection in maybeCollection)
+        {
+            return await GetItems(collection.Id);
+        }
+
+        return [];
+    }
+
     public async Task<List<MediaItem>> GetMultiCollectionItems(int id)
     {
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
@@ -344,75 +372,155 @@ public class MediaCollectionRepository : IMediaCollectionRepository
         return result.DistinctBy(x => x.Id).ToList();
     }
 
-    public async Task<List<MediaItem>> GetSmartCollectionItems(int id)
+    public async Task<List<MediaItem>> GetMultiCollectionItemsByName(string name)
     {
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
 
-        var result = new List<MediaItem>();
+        Option<MultiCollection> maybeCollection = await dbContext.MultiCollections
+            .SelectOneAsync(
+                mc => mc.Name,
+                mc => EF.Functions.Collate(mc.Name, TvContext.CaseInsensitiveCollation) == name);
+
+        foreach (MultiCollection collection in maybeCollection)
+        {
+            return await GetMultiCollectionItems(collection.Id);
+        }
+
+        return [];
+    }
+
+    public async Task<List<MediaItem>> GetSmartCollectionItems(int id)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
 
         Option<SmartCollection> maybeCollection = await dbContext.SmartCollections
             .SelectOneAsync(sc => sc.Id, sc => sc.Id == id);
 
         foreach (SmartCollection collection in maybeCollection)
         {
-            // elasticsearch doesn't like when we ask for a limit of zero, so use 10,000
-            SearchResult searchResults = await _searchIndex.Search(_client, collection.Query, 0, 10_000);
-
-            var movieIds = searchResults.Items
-                .Filter(i => i.Type == LuceneSearchIndex.MovieType)
-                .Map(i => i.Id)
-                .ToList();
-            result.AddRange(await GetMovieItems(dbContext, movieIds));
-
-            foreach (int showId in searchResults.Items.Filter(i => i.Type == LuceneSearchIndex.ShowType).Map(i => i.Id))
-            {
-                result.AddRange(await GetShowItemsFromShowId(dbContext, showId));
-            }
-
-            foreach (int seasonId in searchResults.Items.Filter(i => i.Type == LuceneSearchIndex.SeasonType)
-                         .Map(i => i.Id))
-            {
-                result.AddRange(await GetSeasonItemsFromSeasonId(dbContext, seasonId));
-            }
-
-            foreach (int artistId in searchResults.Items.Filter(i => i.Type == LuceneSearchIndex.ArtistType)
-                         .Map(i => i.Id))
-            {
-                result.AddRange(await GetArtistItemsFromArtistId(dbContext, artistId));
-            }
-
-            var musicVideoIds = searchResults.Items
-                .Filter(i => i.Type == LuceneSearchIndex.MusicVideoType)
-                .Map(i => i.Id)
-                .ToList();
-            result.AddRange(await GetMusicVideoItems(dbContext, musicVideoIds));
-
-            var episodeIds = searchResults.Items
-                .Filter(i => i.Type == LuceneSearchIndex.EpisodeType)
-                .Map(i => i.Id)
-                .ToList();
-            result.AddRange(await GetEpisodeItems(dbContext, episodeIds));
-
-            var otherVideoIds = searchResults.Items
-                .Filter(i => i.Type == LuceneSearchIndex.OtherVideoType)
-                .Map(i => i.Id)
-                .ToList();
-            result.AddRange(await GetOtherVideoItems(dbContext, otherVideoIds));
-
-            var songIds = searchResults.Items
-                .Filter(i => i.Type == LuceneSearchIndex.SongType)
-                .Map(i => i.Id)
-                .ToList();
-            result.AddRange(await GetSongItems(dbContext, songIds));
-
-            var imageIds = searchResults.Items
-                .Filter(i => i.Type == LuceneSearchIndex.ImageType)
-                .Map(i => i.Id)
-                .ToList();
-            result.AddRange(await GetImageItems(dbContext, imageIds));
+            return await GetSmartCollectionItems(collection.Query);
         }
 
+        return [];
+    }
+
+    public async Task<List<MediaItem>> GetSmartCollectionItemsByName(string name)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+        Option<SmartCollection> maybeCollection = await dbContext.SmartCollections
+            .SelectOneAsync(
+                sc => sc.Name,
+                sc => EF.Functions.Collate(sc.Name, TvContext.CaseInsensitiveCollation) == name);
+
+        foreach (SmartCollection collection in maybeCollection)
+        {
+            return await GetSmartCollectionItems(collection.Query);
+        }
+
+        return [];
+    }
+
+    public async Task<List<MediaItem>> GetSmartCollectionItems(string query)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+        var result = new List<MediaItem>();
+
+        // elasticsearch doesn't like when we ask for a limit of zero, so use 10,000
+        SearchResult searchResults = await _searchIndex.Search(_client, query, 0, 10_000);
+
+        var movieIds = searchResults.Items
+            .Filter(i => i.Type == LuceneSearchIndex.MovieType)
+            .Map(i => i.Id)
+            .ToList();
+        result.AddRange(await GetMovieItems(dbContext, movieIds));
+
+        foreach (int showId in searchResults.Items.Filter(i => i.Type == LuceneSearchIndex.ShowType).Map(i => i.Id))
+        {
+            result.AddRange(await GetShowItemsFromShowId(dbContext, showId));
+        }
+
+        foreach (int seasonId in searchResults.Items.Filter(i => i.Type == LuceneSearchIndex.SeasonType)
+                     .Map(i => i.Id))
+        {
+            result.AddRange(await GetSeasonItemsFromSeasonId(dbContext, seasonId));
+        }
+
+        foreach (int artistId in searchResults.Items.Filter(i => i.Type == LuceneSearchIndex.ArtistType)
+                     .Map(i => i.Id))
+        {
+            result.AddRange(await GetArtistItemsFromArtistId(dbContext, artistId));
+        }
+
+        var musicVideoIds = searchResults.Items
+            .Filter(i => i.Type == LuceneSearchIndex.MusicVideoType)
+            .Map(i => i.Id)
+            .ToList();
+        result.AddRange(await GetMusicVideoItems(dbContext, musicVideoIds));
+
+        var episodeIds = searchResults.Items
+            .Filter(i => i.Type == LuceneSearchIndex.EpisodeType)
+            .Map(i => i.Id)
+            .ToList();
+        result.AddRange(await GetEpisodeItems(dbContext, episodeIds));
+
+        var otherVideoIds = searchResults.Items
+            .Filter(i => i.Type == LuceneSearchIndex.OtherVideoType)
+            .Map(i => i.Id)
+            .ToList();
+        result.AddRange(await GetOtherVideoItems(dbContext, otherVideoIds));
+
+        var songIds = searchResults.Items
+            .Filter(i => i.Type == LuceneSearchIndex.SongType)
+            .Map(i => i.Id)
+            .ToList();
+        result.AddRange(await GetSongItems(dbContext, songIds));
+
+        var imageIds = searchResults.Items
+            .Filter(i => i.Type == LuceneSearchIndex.ImageType)
+            .Map(i => i.Id)
+            .ToList();
+        result.AddRange(await GetImageItems(dbContext, imageIds));
+
         return result.DistinctBy(x => x.Id).ToList();
+    }
+
+    public async Task<List<MediaItem>> GetShowItemsByShowGuids(List<string> guids)
+    {
+        await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+        var result = new List<MediaItem>();
+
+        System.Collections.Generic.HashSet<int> showIds = [];
+
+        foreach (string guid in guids)
+        {
+            // don't search any more once we have a matching show
+            if (showIds.Count > 0)
+            {
+                break;
+            }
+
+            List<int> nextIds = await dbContext.ShowMetadata
+                .Filter(
+                    sm => sm.Guids.Any(g => EF.Functions.Collate(g.Guid, TvContext.CaseInsensitiveCollation) == guid))
+                .Map(sm => sm.ShowId)
+                .ToListAsync();
+
+            foreach (int showId in nextIds)
+            {
+                showIds.Add(showId);
+            }
+        }
+
+        // multiple shows are not supported here, just use the first match
+        foreach (int showId in showIds.HeadOrNone())
+        {
+            result.AddRange(await GetShowItemsFromShowId(dbContext, showId));
+        }
+
+        return result;
     }
 
     public async Task<List<CollectionWithItems>> GetMultiCollectionCollections(int id)
@@ -501,7 +609,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
 
         return result;
     }
-    
+
     public async Task<List<MediaItem>> GetPlaylistItems(int id)
     {
         await using TvContext dbContext = await _dbContextFactory.CreateDbContextAsync();
@@ -531,7 +639,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                     }
 
                     break;
-                
+
                 case ProgramScheduleItemCollectionType.TelevisionShow:
                     foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
                     {
@@ -539,7 +647,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                     }
 
                     break;
-                
+
                 case ProgramScheduleItemCollectionType.TelevisionSeason:
                     foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
                     {
@@ -547,7 +655,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                     }
 
                     break;
-                
+
                 case ProgramScheduleItemCollectionType.Artist:
                     foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
                     {
@@ -563,7 +671,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                     }
 
                     break;
-                
+
                 case ProgramScheduleItemCollectionType.SmartCollection:
                     foreach (int smartCollectionId in Optional(playlistItem.SmartCollectionId))
                     {
@@ -571,7 +679,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                     }
 
                     break;
-                
+
                 case ProgramScheduleItemCollectionType.Movie:
                     foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
                     {
@@ -579,7 +687,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                     }
 
                     break;
-                
+
                 case ProgramScheduleItemCollectionType.Episode:
                     foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
                     {
@@ -603,7 +711,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                     }
 
                     break;
-                
+
                 case ProgramScheduleItemCollectionType.Song:
                     foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
                     {
@@ -611,7 +719,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
                     }
 
                     break;
-                
+
                 case ProgramScheduleItemCollectionType.Image:
                     foreach (int mediaItemId in Optional(playlistItem.MediaItemId))
                     {
@@ -897,10 +1005,11 @@ public class MediaCollectionRepository : IMediaCollectionRepository
 
         return await GetMovieItems(dbContext, ids);
     }
-    
+
     private static Task<List<Movie>> GetMovieItems(TvContext dbContext, IEnumerable<int> movieIds) =>
         dbContext.Movies
             .Include(m => m.MovieMetadata)
+            .ThenInclude(mm => mm.Subtitles)
             .Include(m => m.MediaVersions)
             .ThenInclude(mv => mv.Chapters)
             .Include(m => m.MediaVersions)
@@ -927,6 +1036,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
             .Include(m => m.Artist)
             .ThenInclude(a => a.ArtistMetadata)
             .Include(m => m.MusicVideoMetadata)
+            .ThenInclude(mvm => mvm.Subtitles)
             .Include(m => m.MediaVersions)
             .ThenInclude(mv => mv.Chapters)
             .Include(m => m.MediaVersions)
@@ -961,6 +1071,9 @@ public class MediaCollectionRepository : IMediaCollectionRepository
             .Include(m => m.Artist)
             .ThenInclude(a => a.ArtistMetadata)
             .Include(m => m.MusicVideoMetadata)
+            .ThenInclude(mvm => mvm.Subtitles)
+            .Include(m => m.MusicVideoMetadata)
+            .ThenInclude(mvm => mvm.Artists)
             .Include(m => m.MediaVersions)
             .ThenInclude(mv => mv.Chapters)
             .Include(m => m.MediaVersions)
@@ -982,6 +1095,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
     private static Task<List<OtherVideo>> GetOtherVideoItems(TvContext dbContext, IEnumerable<int> otherVideoIds) =>
         dbContext.OtherVideos
             .Include(m => m.OtherVideoMetadata)
+            .ThenInclude(ovm => ovm.Subtitles)
             .Include(m => m.MediaVersions)
             .ThenInclude(mv => mv.Chapters)
             .Include(m => m.MediaVersions)
@@ -1003,6 +1117,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
     private static Task<List<Song>> GetSongItems(TvContext dbContext, IEnumerable<int> songIds) =>
         dbContext.Songs
             .Include(m => m.SongMetadata)
+            .ThenInclude(s => s.Subtitles)
             .Include(m => m.MediaVersions)
             .ThenInclude(mv => mv.Chapters)
             .Include(m => m.MediaVersions)
@@ -1024,6 +1139,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
     private static Task<List<Image>> GetImageItems(TvContext dbContext, IEnumerable<int> songIds) =>
         dbContext.Images
             .Include(m => m.ImageMetadata)
+            .ThenInclude(im => im.Subtitles)
             .Include(m => m.MediaVersions)
             .ThenInclude(mv => mv.Chapters)
             .Include(m => m.MediaVersions)
@@ -1049,6 +1165,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
     private static Task<List<Episode>> GetShowItemsFromEpisodeIds(TvContext dbContext, IEnumerable<int> episodeIds) =>
         dbContext.Episodes
             .Include(e => e.EpisodeMetadata)
+            .ThenInclude(em => em.Subtitles)
             .Include(e => e.MediaVersions)
             .ThenInclude(mv => mv.Chapters)
             .Include(m => m.MediaVersions)
@@ -1086,6 +1203,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
     private static Task<List<Episode>> GetSeasonItemsFromEpisodeIds(TvContext dbContext, IEnumerable<int> episodeIds) =>
         dbContext.Episodes
             .Include(e => e.EpisodeMetadata)
+            .ThenInclude(em => em.Subtitles)
             .Include(e => e.MediaVersions)
             .ThenInclude(mv => mv.Chapters)
             .Include(m => m.MediaVersions)
@@ -1121,6 +1239,7 @@ public class MediaCollectionRepository : IMediaCollectionRepository
     private static Task<List<Episode>> GetEpisodeItems(TvContext dbContext, IEnumerable<int> episodeIds) =>
         dbContext.Episodes
             .Include(e => e.EpisodeMetadata)
+            .ThenInclude(em => em.Subtitles)
             .Include(e => e.MediaVersions)
             .ThenInclude(mv => mv.Chapters)
             .Include(m => m.MediaVersions)

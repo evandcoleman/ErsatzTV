@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Net.Security;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -15,6 +16,7 @@ using ErsatzTV.Core.Errors;
 using ErsatzTV.Core.FFmpeg;
 using ErsatzTV.Core.Health;
 using ErsatzTV.Core.Health.Checks;
+using ErsatzTV.Core.Images;
 using ErsatzTV.Core.Interfaces.Emby;
 using ErsatzTV.Core.Interfaces.FFmpeg;
 using ErsatzTV.Core.Interfaces.GitHub;
@@ -35,6 +37,7 @@ using ErsatzTV.Core.Metadata;
 using ErsatzTV.Core.Plex;
 using ErsatzTV.Core.Scheduling;
 using ErsatzTV.Core.Scheduling.BlockScheduling;
+using ErsatzTV.Core.Scheduling.YamlScheduling;
 using ErsatzTV.Core.Trakt;
 using ErsatzTV.FFmpeg.Capabilities;
 using ErsatzTV.FFmpeg.Pipeline;
@@ -329,7 +332,7 @@ public class Startup
             "https://discord.gg/hHaJm3yGy6");
 
         CopyMacOsConfigFolderIfNeeded();
-        
+
         List<string> directoriesToCreate =
         [
             FileSystemLayout.AppDataFolder,
@@ -438,6 +441,8 @@ public class Startup
             TvContext.CaseInsensitiveCollation = "utf8mb4_general_ci";
         }
 
+        Log.Logger.Information("Transcode folder is {Folder}", FileSystemLayout.TranscodeFolder);
+
         services.AddMediatR(config => config.RegisterServicesFromAssemblyContaining<GetAllChannels>());
 
         services.AddRefitClient<IPlexTvApi>()
@@ -447,11 +452,8 @@ public class Startup
             .ConfigureHttpClient(c => c.BaseAddress = new Uri("https://api.trakt.tv"));
 
         services.Configure<TraktConfiguration>(Configuration.GetSection("Trakt"));
-        
-        services.AddResponseCompression(options =>
-        {
-            options.EnableForHttps = true;
-        });
+
+        services.AddResponseCompression(options => { options.EnableForHttps = true; });
 
         CustomServices(services);
     }
@@ -520,7 +522,7 @@ public class Startup
         app.UseStaticFiles();
 
         var extensionProvider = new FileExtensionContentTypeProvider();
-        
+
         // fix static file M3U8 mime type
         extensionProvider.Mappings.Add(".m3u8", "application/vnd.apple.mpegurl");
 
@@ -654,7 +656,10 @@ public class Startup
         services.AddScoped<IPlayoutBuilder, PlayoutBuilder>();
         services.AddScoped<IBlockPlayoutBuilder, BlockPlayoutBuilder>();
         services.AddScoped<IBlockPlayoutPreviewBuilder, BlockPlayoutPreviewBuilder>();
+        services.AddScoped<IBlockPlayoutFillerBuilder, BlockPlayoutFillerBuilder>();
+        services.AddScoped<IYamlPlayoutBuilder, YamlPlayoutBuilder>();
         services.AddScoped<IExternalJsonPlayoutBuilder, ExternalJsonPlayoutBuilder>();
+        services.AddScoped<IPlayoutTimeShifter, PlayoutTimeShifter>();
         services.AddScoped<IImageCache, ImageCache>();
         services.AddScoped<ILocalFileSystem, LocalFileSystem>();
         services.AddScoped<IPlexServerApiClient, PlexServerApiClient>();
@@ -678,6 +683,7 @@ public class Startup
         services.AddScoped<IHardwareCapabilitiesFactory, HardwareCapabilitiesFactory>();
         services.AddScoped<IMultiEpisodeShuffleCollectionEnumeratorFactory,
             MultiEpisodeShuffleCollectionEnumeratorFactory>();
+        services.AddScoped<IChannelLogoGenerator, ChannelLogoGenerator>();
 
         services.AddScoped<IFFmpegProcessService, FFmpegLibraryProcessService>();
         services.AddScoped<IPipelineBuilderFactory, PipelineBuilderFactory>();
@@ -704,6 +710,7 @@ public class Startup
         // run-once/blocking startup services
         services.AddHostedService<EndpointValidatorService>();
         services.AddHostedService<DatabaseMigratorService>();
+        services.AddHostedService<DatabaseCleanerService>();
         services.AddHostedService<LoadLoggingLevelService>();
         services.AddHostedService<CacheCleanerService>();
         services.AddHostedService<ResourceExtractorService>();
@@ -733,7 +740,7 @@ public class Startup
         services.AddSingleton(
             provider => provider.GetRequiredService<Channel<TMessageType>>().Writer);
     }
-    
+
     private static void CopyMacOsConfigFolderIfNeeded()
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
@@ -761,13 +768,13 @@ public class Startup
             "Migrating config data from {OldFolder} to {NewFolder}",
             FileSystemLayout.MacOsOldAppDataFolder,
             FileSystemLayout.AppDataFolder);
-                    
+
         try
         {
             // delete new config folder
             if (Directory.Exists(FileSystemLayout.AppDataFolder))
             {
-                Directory.Delete(FileSystemLayout.AppDataFolder, recursive: true);
+                Directory.Delete(FileSystemLayout.AppDataFolder, true);
             }
 
             // move old config folder to new config folder

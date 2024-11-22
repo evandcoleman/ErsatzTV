@@ -71,6 +71,9 @@ public class WorkerService : BackgroundService
                                     buildPlayout.PlayoutId,
                                     error.Value));
                             break;
+                        case TimeShiftOnDemandPlayout timeShiftOnDemandPlayout:
+                            await mediator.Send(timeShiftOnDemandPlayout, stoppingToken);
+                            break;
                         case DeleteOrphanedArtwork deleteOrphanedArtwork:
                             await mediator.Send(deleteOrphanedArtwork, stoppingToken);
                             break;
@@ -78,7 +81,14 @@ public class WorkerService : BackgroundService
                             await mediator.Send(deleteOrphanedSubtitles, stoppingToken);
                             break;
                         case AddTraktList addTraktList:
-                            await mediator.Send(addTraktList, stoppingToken);
+                            Either<BaseError, Unit> result = await mediator.Send(addTraktList, stoppingToken);
+                            foreach (BaseError error in result.LeftToSeq())
+                            {
+                                _logger.LogWarning(
+                                    "Unable to add trakt list {Url}: {Error}",
+                                    addTraktList.TraktListUrl,
+                                    error.Value);
+                            }
                             break;
                         case DeleteTraktList deleteTraktList:
                             await mediator.Send(deleteTraktList, stoppingToken);

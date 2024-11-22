@@ -1,9 +1,9 @@
-﻿@page "/channels"
+@page "/channels"
+@using System.Globalization
 @using ErsatzTV.Application.Channels
 @using ErsatzTV.Application.Configuration
 @using ErsatzTV.Application.FFmpegProfiles
 @using ErsatzTV.Core.Interfaces.FFmpeg
-@using System.Globalization
 @implements IDisposable
 @inject IDialogService Dialog
 @inject IMediator Mediator
@@ -13,7 +13,7 @@
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pt-8">
     <MudTable Hover="true"
               @bind-RowsPerPage="@_rowsPerPage"
-              ServerData="@(new Func<TableState, Task<TableData<ChannelViewModel>>>(ServerReload))"
+              ServerData="@(new Func<TableState, CancellationToken, Task<TableData<ChannelViewModel>>>(ServerReload))"
               @ref="_table">
         <ToolBarContent>
             <MudText Typo="Typo.h6">Channels</MudText>
@@ -46,6 +46,10 @@
                 @if (!string.IsNullOrWhiteSpace(context.Logo))
                 {
                     <MudElement HtmlTag="img" src="@($"iptv/logos/{context.Logo}")" Style="max-height: 50px"/>
+                }
+                else
+                {
+                    <MudElement HtmlTag="img" src="@($"iptv/logos/gen?text={context.WebEncodedName}")" Style="max-height: 50px" />
                 }
             </MudTd>
             <MudTd DataLabel="Name">@context.Name</MudTd>
@@ -88,7 +92,7 @@
                     }
                     <MudTooltip Text="Edit Channel">
                         <MudIconButton Icon="@Icons.Material.Filled.Edit"
-                                       Link="@($"channels/{context.Id}")">
+                                       Href="@($"channels/{context.Id}")">
                         </MudIconButton>
                     </MudTooltip>
                     <MudTooltip Text="Delete Channel">
@@ -103,7 +107,7 @@
             <MudTablePager/>
         </PagerContent>
     </MudTable>
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" Link="channels/add" Class="mt-4">
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="channels/add" Class="mt-4">
         Add Channel
     </MudButton>
 </MudContainer>
@@ -176,7 +180,12 @@
 
             var uri = new UriBuilder(NavigationManager.ToAbsoluteUri(NavigationManager.Uri));
             uri.Path = uri.Path.Replace("/channels", $"/iptv/channel/{channel.Number}.m3u8");
-            uri.Query = "?mode=segmenter";
+            uri.Query = channel.StreamingMode switch
+            {
+                StreamingMode.HttpLiveStreamingSegmenterV2 => "?mode=segmenter-v2",
+                _ => "?mode=segmenter"
+            };
+
             if (JwtHelper.IsEnabled)
             {
                 uri.Query += $"&access_token={JwtHelper.GenerateToken()}";
@@ -205,7 +214,7 @@
         }
     }
 
-    private async Task<TableData<ChannelViewModel>> ServerReload(TableState state)
+    private async Task<TableData<ChannelViewModel>> ServerReload(TableState state, CancellationToken cancellationToken)
     {
         await Mediator.Send(new SaveConfigElementByKey(ConfigElementKey.ChannelsPageSize, state.PageSize.ToString()), _cts.Token);
 
@@ -243,5 +252,4 @@
         StreamingMode.TransportStreamHybrid => "MPEG-TS",
         _ => "MPEG-TS (Legacy)"
     };
-
 }

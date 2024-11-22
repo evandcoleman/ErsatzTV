@@ -15,13 +15,13 @@ public class ChannelEditViewModel
     public string PreferredAudioLanguageCode { get; set; }
     public string PreferredAudioTitle { get; set; }
     public string Logo { get; set; }
+    public ChannelProgressMode ProgressMode { get; set; }
     public StreamingMode StreamingMode { get; set; }
     public int? WatermarkId { get; set; }
     public int? FallbackFillerId { get; set; }
     public string PreferredSubtitleLanguageCode { get; set; }
     public ChannelSubtitleMode SubtitleMode { get; set; }
     public ChannelMusicVideoCreditsMode MusicVideoCreditsMode { get; set; }
-
     public string MusicVideoCreditsTemplate
     {
         get => MusicVideoCreditsMode == ChannelMusicVideoCreditsMode.GenerateSubtitles
@@ -29,6 +29,7 @@ public class ChannelEditViewModel
             : null;
         set => _musicVideoCreditsTemplate = value;
     }
+    public ChannelSongVideoMode SongVideoMode { get; set; }
 
     public UpdateChannel ToUpdate() =>
         new(
@@ -41,13 +42,15 @@ public class ChannelEditViewModel
             Logo,
             PreferredAudioLanguageCode,
             PreferredAudioTitle,
+            ProgressMode,
             StreamingMode,
             WatermarkId,
             FallbackFillerId,
             PreferredSubtitleLanguageCode,
             SubtitleMode,
             MusicVideoCreditsMode,
-            MusicVideoCreditsTemplate);
+            MusicVideoCreditsTemplate,
+            SongVideoMode);
 
     public CreateChannel ToCreate() =>
         new(
@@ -59,11 +62,13 @@ public class ChannelEditViewModel
             Logo,
             PreferredAudioLanguageCode,
             PreferredAudioTitle,
+            ProgressMode,
             StreamingMode,
             WatermarkId,
             FallbackFillerId,
             PreferredSubtitleLanguageCode,
             SubtitleMode,
             MusicVideoCreditsMode,
-            MusicVideoCreditsTemplate);
+            MusicVideoCreditsTemplate,
+            SongVideoMode);
 }

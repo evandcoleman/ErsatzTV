@@ -22,11 +22,30 @@ public class UpdateDecoHandler(IDbContextFactory<TvContext> dbContextFactory)
         UpdateDeco request)
     {
         existing.Name = request.Name;
-        
+
         // watermark
         existing.WatermarkMode = request.WatermarkMode;
         existing.WatermarkId = request.WatermarkMode is DecoMode.Override ? request.WatermarkId : null;
-        
+        existing.UseWatermarkDuringFiller =
+            request.WatermarkMode is DecoMode.Override && request.UseWatermarkDuringFiller;
+
+        // default filler
+        existing.DefaultFillerMode = request.DefaultFillerMode;
+        existing.DefaultFillerCollectionType = request.DefaultFillerCollectionType;
+        existing.DefaultFillerCollectionId = request.DefaultFillerMode is DecoMode.Override
+            ? request.DefaultFillerCollectionId
+            : null;
+        existing.DefaultFillerMediaItemId = request.DefaultFillerMode is DecoMode.Override
+            ? request.DefaultFillerMediaItemId
+            : null;
+        existing.DefaultFillerMultiCollectionId = request.DefaultFillerMode is DecoMode.Override
+            ? request.DefaultFillerMultiCollectionId
+            : null;
+        existing.DefaultFillerSmartCollectionId = request.DefaultFillerMode is DecoMode.Override
+            ? request.DefaultFillerSmartCollectionId
+            : null;
+        existing.DefaultFillerTrimToFit = request.DefaultFillerTrimToFit;
+
         // dead air fallback
         existing.DeadAirFallbackMode = request.DeadAirFallbackMode;
         existing.DeadAirFallbackCollectionType = request.DeadAirFallbackCollectionType;
@@ -58,7 +77,7 @@ public class UpdateDecoHandler(IDbContextFactory<TvContext> dbContextFactory)
         dbContext.Decos
             .SelectOneAsync(d => d.Id, d => d.Id == request.DecoId)
             .Map(o => o.ToValidation<BaseError>("Deco does not exist"));
-    
+
     private static async Task<Validation<BaseError, string>> ValidateDecoName(
         TvContext dbContext,
         UpdateDeco request)

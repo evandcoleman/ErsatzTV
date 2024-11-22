@@ -7,15 +7,81 @@ namespace ErsatzTV.Core.Scheduling;
 
 public class PlaylistEnumerator : IMediaCollectionEnumerator
 {
-    private IList<IMediaCollectionEnumerator> _sortedEnumerators;
-    private IList<bool> _playAll;
+    private readonly System.Collections.Generic.HashSet<int> _remainingMediaItemIds = [];
+    private System.Collections.Generic.HashSet<int> _allMediaItemIds;
     private int _enumeratorIndex;
     private System.Collections.Generic.HashSet<int> _idsToIncludeInEPG;
+    private IList<bool> _playAll;
+    private List<IMediaCollectionEnumerator> _sortedEnumerators;
+    private bool _shufflePlaylistItems;
+    private CloneableRandom _random;
+
+    private PlaylistEnumerator()
+    {
+    }
+
+    public void ResetState(CollectionEnumeratorState state) =>
+        // seed doesn't matter here
+        State.Index = state.Index;
+
+    public CollectionEnumeratorState State { get; private set; }
+
+    public Option<MediaItem> Current => _sortedEnumerators.Count > 0
+        ? _sortedEnumerators[_enumeratorIndex].Current
+        : Option<MediaItem>.None;
+
+    public Option<bool> CurrentIncludeInProgramGuide
+    {
+        get
+        {
+            foreach (MediaItem mediaItem in Current)
+            {
+                return _idsToIncludeInEPG.Contains(mediaItem.Id);
+            }
+
+            return Option<bool>.None;
+        }
+    }
+
+    public int Count => throw new NotSupportedException("Count isn't used for playlist enumeration");
+
+    public Option<TimeSpan> MinimumDuration { get; private set; }
+
+    public void MoveNext()
+    {
+        foreach (MediaItem maybeMediaItem in _sortedEnumerators[_enumeratorIndex].Current)
+        {
+            _remainingMediaItemIds.Remove(maybeMediaItem.Id);
+        }
+
+        _sortedEnumerators[_enumeratorIndex].MoveNext();
+
+        // if we aren't playing all, or if we just finished playing all, move to the next enumerator
+        if (!_playAll[_enumeratorIndex] || _sortedEnumerators[_enumeratorIndex].State.Index == 0)
+        {
+            _enumeratorIndex = (_enumeratorIndex + 1) % _sortedEnumerators.Count;
+        }
+
+        State.Index += 1;
+        if (_remainingMediaItemIds.Count == 0 && _enumeratorIndex == 0 && _sortedEnumerators[0].State.Index == 0)
+        {
+            State.Index = 0;
+            _remainingMediaItemIds.UnionWith(_allMediaItemIds);
+
+            if (_shufflePlaylistItems)
+            {
+                State.Seed = _random.Next();
+                _random = new CloneableRandom(State.Seed);
+                _sortedEnumerators = ShufflePlaylistItems();
+            }
+        }
+    }
 
     public static async Task<PlaylistEnumerator> Create(
         IMediaCollectionRepository mediaCollectionRepository,
         Dictionary<PlaylistItem, List<MediaItem>> playlistItemMap,
         CollectionEnumeratorState state,
+        bool shufflePlaylistItems,
         CancellationToken cancellationToken)
     {
         var result = new PlaylistEnumerator
@@ -23,23 +89,26 @@ public class PlaylistEnumerator : IMediaCollectionEnumerator
             _sortedEnumerators = [],
             _playAll = [],
             _idsToIncludeInEPG = [],
-            Count = LCM(playlistItemMap.Values.Map(v => v.Count)) * playlistItemMap.Count
+            _shufflePlaylistItems = shufflePlaylistItems
         };
 
         // collections should share enumerators
         var enumeratorMap = new Dictionary<CollectionKey, IMediaCollectionEnumerator>();
+        result._allMediaItemIds = [];
 
         foreach (PlaylistItem playlistItem in playlistItemMap.Keys.OrderBy(i => i.Index))
         {
             List<MediaItem> items = playlistItemMap[playlistItem];
-            if (playlistItem.IncludeInProgramGuide)
+            foreach (MediaItem mediaItem in items)
             {
-                foreach (MediaItem mediaItem in items)
+                result._allMediaItemIds.Add(mediaItem.Id);
+
+                if (playlistItem.IncludeInProgramGuide)
                 {
                     result._idsToIncludeInEPG.Add(mediaItem.Id);
                 }
             }
-            
+
             var collectionKey = CollectionKey.ForPlaylistItem(playlistItem);
             if (enumeratorMap.TryGetValue(collectionKey, out IMediaCollectionEnumerator enumerator))
             {
@@ -78,7 +147,7 @@ public class PlaylistEnumerator : IMediaCollectionEnumerator
                                 CollectionKey.ForPlaylistItem(playlistItem)),
                             initState,
                             // TODO: fix this
-                            randomStartPoint: false,
+                            false,
                             cancellationToken);
                         break;
                     case PlaybackOrder.SeasonEpisode:
@@ -99,86 +168,65 @@ public class PlaylistEnumerator : IMediaCollectionEnumerator
             }
         }
 
+        result._remainingMediaItemIds.UnionWith(result._allMediaItemIds);
+
         result.MinimumDuration = playlistItemMap.Values
             .Flatten()
             .Bind(i => i.GetNonZeroDuration())
             .OrderBy(identity)
             .HeadOrNone();
 
+        result._random = new CloneableRandom(state.Seed);
+
+        if (shufflePlaylistItems)
+        {
+            result._sortedEnumerators = result.ShufflePlaylistItems();
+        }
+
         result.State = new CollectionEnumeratorState { Seed = state.Seed };
         result._enumeratorIndex = 0;
-        
-        // TODO: how do we end up with index > count?
-        if (state.Index < result.Count)
+
+        // this was a bug when playlist enumerators were first added; shouldn't happen anymore
+        if (state.Index < 0)
         {
-            while (result.State.Index < state.Index)
+            state.Index = 0;
+        }
+
+        while (result.State.Index < state.Index)
+        {
+            result.MoveNext();
+
+            // previous state is no longer valid; playlist now has fewer items
+            if (result.State.Index == 0)
             {
-                result.MoveNext();
+                break;
             }
         }
 
         return result;
     }
 
-    private PlaylistEnumerator()
+    private List<IMediaCollectionEnumerator> ShufflePlaylistItems()
     {
-    }
-    
-    public void ResetState(CollectionEnumeratorState state) =>
-        // seed doesn't matter here
-        State.Index = state.Index;
-
-    public CollectionEnumeratorState State { get; private set; }
-    
-    public Option<MediaItem> Current => _sortedEnumerators[_enumeratorIndex].Current;
-    public Option<bool> CurrentIncludeInProgramGuide
-    {
-        get
+        if (_sortedEnumerators.Count < 3)
         {
-            foreach (MediaItem mediaItem in Current)
+            return _sortedEnumerators;
+        }
+
+        IMediaCollectionEnumerator[] copy = _sortedEnumerators.ToArray();
+        IMediaCollectionEnumerator last = _sortedEnumerators.Last();
+
+        do
+        {
+            int n = copy.Length;
+            while (n > 1)
             {
-                return _idsToIncludeInEPG.Contains(mediaItem.Id);
+                n--;
+                int k = _random.Next(n + 1);
+                (copy[k], copy[n]) = (copy[n], copy[k]);
             }
-            
-            return Option<bool>.None;
-        }
-    }
+        } while (copy.First() == last);
 
-    public int Count { get; private set; }
-
-    public Option<TimeSpan> MinimumDuration { get; private set; }
-
-    public void MoveNext()
-    {
-        _sortedEnumerators[_enumeratorIndex].MoveNext();
-        
-        // if we aren't playing all, or if we just finished playing all, move to the next enumerator
-        if (!_playAll[_enumeratorIndex] || _sortedEnumerators[_enumeratorIndex].State.Index == 0)
-        {
-            _enumeratorIndex = (_enumeratorIndex + 1) % _sortedEnumerators.Count;
-        }
-
-        State.Index = (State.Index + 1) % Count;
-    }
-
-    private static int LCM(IEnumerable<int> numbers)
-    {
-        return numbers.Aggregate(lcm);
-    }
-
-    private static int lcm(int a, int b)
-    {
-        return Math.Abs(a * b) / GCD(a, b);
-    }
-
-    private static int GCD(int a, int b)
-    {
-        while (true)
-        {
-            if (b == 0) return a;
-            int a1 = a;
-            a = b;
-            b = a1 % b;
-        }
+        return copy.ToList();
     }
 }

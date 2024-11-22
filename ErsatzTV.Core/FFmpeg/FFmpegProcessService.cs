@@ -1,9 +1,11 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text;
+using System.Text.Encodings.Web;
 using Bugsnag;
 using CliWrap;
 using CliWrap.Buffered;
 using ErsatzTV.Core.Domain;
+using ErsatzTV.Core.Images;
 using ErsatzTV.Core.Interfaces.FFmpeg;
 using ErsatzTV.Core.Interfaces.Images;
 using ErsatzTV.FFmpeg.State;
@@ -177,6 +179,13 @@ public class FFmpegProcessService
             {
                 switch (watermark.ImageSource)
                 {
+                    // used for song progress overlay
+                    case ChannelWatermarkImageSource.Resource:
+                        return new WatermarkOptions(
+                            await watermarkOverride.IfNoneAsync(watermark),
+                            Path.Combine(FileSystemLayout.ResourcesCacheFolder, watermark.Image),
+                            Option<int>.None,
+                            false);
                     case ChannelWatermarkImageSource.Custom:
                         string customPath = _imageCache.GetPathForImage(
                             watermark.Image,
@@ -188,10 +197,15 @@ public class FFmpegProcessService
                             None,
                             await IsAnimated(ffprobePath, customPath));
                     case ChannelWatermarkImageSource.ChannelLogo:
-                        Option<string> maybeChannelPath = channel.Artwork
-                            .Filter(a => a.ArtworkKind == ArtworkKind.Logo)
-                            .HeadOrNone()
-                            .Map(a => _imageCache.GetPathForImage(a.Path, ArtworkKind.Logo, Option<int>.None));
+                        Option<string> maybeChannelPath = (channel.Artwork.Count == 0) ?
+                            //We have to generate the logo on the fly and save it to a local temp path
+                            ChannelLogoGenerator.GenerateChannelLogoUrl(channel) :
+                            //We have an artwork attached to the channel, let's use it :)
+                            channel.Artwork
+                                .Filter(a => a.ArtworkKind == ArtworkKind.Logo)
+                                .HeadOrNone()
+                                .Map(a => _imageCache.GetPathForImage(a.Path, ArtworkKind.Logo, Option<int>.None));
+
                         return new WatermarkOptions(
                             await watermarkOverride.IfNoneAsync(watermark),
                             maybeChannelPath,
@@ -220,10 +234,14 @@ public class FFmpegProcessService
                             None,
                             await IsAnimated(ffprobePath, customPath));
                     case ChannelWatermarkImageSource.ChannelLogo:
-                        Option<string> maybeChannelPath = channel.Artwork
-                            .Filter(a => a.ArtworkKind == ArtworkKind.Logo)
-                            .HeadOrNone()
-                            .Map(a => _imageCache.GetPathForImage(a.Path, ArtworkKind.Logo, Option<int>.None));
+                        Option<string> maybeChannelPath = (channel.Artwork.Count == 0) ?
+                            //We have to generate the logo on the fly and save it to a local temp path
+                            ChannelLogoGenerator.GenerateChannelLogoUrl(channel) :
+                            //We have an artwork attached to the channel, let's use it :)
+                            channel.Artwork
+                                .Filter(a => a.ArtworkKind == ArtworkKind.Logo)
+                                .HeadOrNone()
+                                .Map(a => _imageCache.GetPathForImage(a.Path, ArtworkKind.Logo, Option<int>.None));
                         return new WatermarkOptions(
                             await watermarkOverride.IfNoneAsync(channel.Watermark),
                             maybeChannelPath,
@@ -252,10 +270,14 @@ public class FFmpegProcessService
                             None,
                             await IsAnimated(ffprobePath, customPath));
                     case ChannelWatermarkImageSource.ChannelLogo:
-                        Option<string> maybeChannelPath = channel.Artwork
-                            .Filter(a => a.ArtworkKind == ArtworkKind.Logo)
-                            .HeadOrNone()
-                            .Map(a => _imageCache.GetPathForImage(a.Path, ArtworkKind.Logo, Option<int>.None));
+                        Option<string> maybeChannelPath = (channel.Artwork.Count == 0) ?
+                            //We have to generate the logo on the fly and save it to a local temp path
+                            ChannelLogoGenerator.GenerateChannelLogoUrl(channel) :
+                            //We have an artwork attached to the channel, let's use it :)
+                            channel.Artwork
+                                .Filter(a => a.ArtworkKind == ArtworkKind.Logo)
+                                .HeadOrNone()
+                                .Map(a => _imageCache.GetPathForImage(a.Path, ArtworkKind.Logo, Option<int>.None));
                         return new WatermarkOptions(
                             await watermarkOverride.IfNoneAsync(watermark),
                             maybeChannelPath,

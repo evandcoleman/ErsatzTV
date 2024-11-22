@@ -178,6 +178,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
         var ffmpegVideoStream = new VideoStream(
             videoStream.Index,
             videoStream.Codec,
+            videoStream.Profile,
             Some(pixelFormat),
             new ColorParams(
                 videoStream.ColorRange,
@@ -334,8 +335,24 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
 
         if (channel.FFmpegProfile.ScalingBehavior is ScalingBehavior.Crop)
         {
-            paddedSize = ffmpegVideoStream.SquarePixelFrameSizeForCrop(
-                new FrameSize(channel.FFmpegProfile.Resolution.Width, channel.FFmpegProfile.Resolution.Height));
+            bool isTooSmallToCrop = videoVersion.Height < channel.FFmpegProfile.Resolution.Height ||
+                                    videoVersion.Width < channel.FFmpegProfile.Resolution.Width;
+
+            // if any dimension is smaller than the crop, scale beyond the crop (beyond the target resolution)
+            if (isTooSmallToCrop)
+            {
+                foreach (IDisplaySize size in playbackSettings.ScaledSize)
+                {
+                    scaledSize = new FrameSize(size.Width, size.Height);
+                }
+
+                paddedSize = scaledSize;
+            }
+            else
+            {
+                paddedSize = ffmpegVideoStream.SquarePixelFrameSizeForCrop(
+                    new FrameSize(channel.FFmpegProfile.Resolution.Width, channel.FFmpegProfile.Resolution.Height));
+            }
 
             cropSize = new FrameSize(
                 channel.FFmpegProfile.Resolution.Width,
@@ -348,6 +365,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             videoFormat,
             maybeVideoProfile,
             maybeVideoPreset,
+            channel.FFmpegProfile.AllowBFrames,
             Optional(playbackSettings.PixelFormat),
             scaledSize,
             paddedSize,
@@ -378,7 +396,8 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             hlsSegmentTemplate,
             ptsOffset,
             playbackSettings.ThreadCount,
-            qsvExtraHardwareFrames);
+            qsvExtraHardwareFrames,
+            videoVersion is BackgroundImageMediaVersion { IsSongWithProgress: true });
 
         _logger.LogDebug("FFmpeg desired state {FrameState}", desiredState);
 
@@ -448,14 +467,15 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             Option<TimeSpan>.None,
             AudioFilter.None);
 
-        var videoFormat = GetVideoFormat(playbackSettings);
-        
+        string videoFormat = GetVideoFormat(playbackSettings);
+
         var desiredState = new FrameState(
             playbackSettings.RealtimeOutput,
             false,
             videoFormat,
             GetVideoProfile(videoFormat, channel.FFmpegProfile.VideoProfile),
             VideoPreset.Unset,
+            channel.FFmpegProfile.AllowBFrames,
             new PixelFormatYuv420P(),
             new FrameSize(desiredResolution.Width, desiredResolution.Height),
             new FrameSize(desiredResolution.Width, desiredResolution.Height),
@@ -493,6 +513,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
         var ffmpegVideoStream = new VideoStream(
             0,
             VideoFormat.GeneratedImage,
+            string.Empty,
             new PixelFormatUnknown(), // leave this unknown so we convert to desired yuv420p
             ColorParams.Default,
             new FrameSize(videoVersion.Width, videoVersion.Height),
@@ -527,7 +548,8 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             hlsSegmentTemplate,
             ptsOffset,
             Option<int>.None,
-            qsvExtraHardwareFrames);
+            qsvExtraHardwareFrames,
+            IsSongWithProgress: false);
 
         var ffmpegSubtitleStream = new ErsatzTV.FFmpeg.MediaStream(0, "ass", StreamKind.Video);
 
@@ -639,6 +661,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
         var ffmpegVideoStream = new VideoStream(
             0,
             VideoFormat.Raw,
+            string.Empty,
             Some(pixelFormat),
             ColorParams.Default,
             resolution,
@@ -682,6 +705,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             videoFormat,
             maybeVideoProfile,
             maybeVideoPreset,
+            channel.FFmpegProfile.AllowBFrames,
             Optional(playbackSettings.PixelFormat),
             resolution,
             resolution,
@@ -715,7 +739,8 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             hlsSegmentTemplate,
             0,
             playbackSettings.ThreadCount,
-            Optional(channel.FFmpegProfile.QsvExtraHardwareFrames));
+            Optional(channel.FFmpegProfile.QsvExtraHardwareFrames),
+            IsSongWithProgress: false);
 
         _logger.LogDebug("FFmpeg desired state {FrameState}", desiredState);
 
@@ -786,6 +811,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
             {
                 new(
                     0,
+                    string.Empty,
                     string.Empty,
                     None,
                     ColorParams.Default,
@@ -870,6 +896,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
                                 new(
                                     options.ImageStreamIndex.IfNone(0),
                                     "unknown",
+                                    string.Empty,
                                     new PixelFormatUnknown(),
                                     ColorParams.Default,
                                     new FrameSize(1, 1),
@@ -998,7 +1025,7 @@ public class FFmpegLibraryProcessService : IFFmpegProcessService
         };
 
     private static Option<string> GetVideoProfile(string videoFormat, string videoProfile) =>
-        (videoFormat, videoProfile.ToLowerInvariant()) switch
+        (videoFormat, (videoProfile ?? string.Empty).ToLowerInvariant()) switch
         {
             (VideoFormat.H264, VideoProfile.Main) => VideoProfile.Main,
             (VideoFormat.H264, VideoProfile.High) => VideoProfile.High,

@@ -1,8 +1,10 @@
 using System.Data.Common;
+using System.Net;
 using System.Xml;
 using Dapper;
 using ErsatzTV.Core;
 using ErsatzTV.Core.Interfaces.Metadata;
+using ErsatzTV.Core.Iptv;
 using ErsatzTV.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -77,11 +79,14 @@ public class RefreshChannelListHandler : IRequestHandler<RefreshChannelList>
         {
             var data = new
             {
+                ChannelId = ChannelIdentifier.FromNumber(channel.Number),
+                ChannelIdLegacy = ChannelIdentifier.LegacyFromNumber(channel.Number),
                 ChannelNumber = channel.Number,
                 ChannelName = channel.Name,
                 ChannelCategories = GetCategories(channel.Categories),
                 ChannelHasArtwork = !string.IsNullOrWhiteSpace(channel.ArtworkPath),
-                ChannelArtworkPath = channel.ArtworkPath
+                ChannelArtworkPath = channel.ArtworkPath,
+                ChannelNameEncoded = WebUtility.UrlEncode(channel.Name)
             };
 
             var scriptObject = new ScriptObject();
@@ -131,11 +136,6 @@ public class RefreshChannelListHandler : IRequestHandler<RefreshChannelList>
         .Filter(s => !string.IsNullOrWhiteSpace(s))
         .Distinct()
         .ToList();
-
-    private static string GetIconUrl(ChannelResult channel) =>
-        string.IsNullOrWhiteSpace(channel.ArtworkPath)
-            ? "{RequestBase}/iptv/images/ersatztv-500.png{AccessTokenUri}"
-            : $"{{RequestBase}}/iptv/logos/{channel.ArtworkPath}.jpg{{AccessTokenUri}}";
 
     // ReSharper disable once ClassNeverInstantiated.Local
     private sealed record ChannelResult(string Number, string Name, string Categories, string ArtworkPath);

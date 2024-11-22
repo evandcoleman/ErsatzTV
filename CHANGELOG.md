@@ -1,9 +1,123 @@
-﻿# Changelog
+# Changelog
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
+### Added
+- Add `Reset All Playouts` button to top of playouts page
+- Add `rewind_on_reset` option to `wait_until` YAML playout instruction
+  - This option allows YAML playouts to start in the past
+- Add `advance` option to `epg_group` YAML playout instruction
+  - When set to `false`, this option will lock the guide group without starting a new guide group
+  - This can be helpful for "post roll" items that should be part of the previous item's guide group
+- Add `Song Video Mode` to channel settings
+  - `Default` - existing behavior
+  - `With Progress` - show animated progress bar at bottom of generated video
+- Add fallback album art image for songs that have no album art
+
+### Changed
+- **BREAKING CHANGE**: Change channel identifiers used in XMLTV to work around bad behavior in Plex
+
+### Fixed
+- Fix startup error with MySql backend caused by database cleaner
+- Fix emptying trash with ElasticSearch backend
+- Fix double loading of trash UI elements, and fix reloading of all UI elements after emptying trash
+- Fix destroying channel preview player when preview dialog is closed
+  - This bug made it difficult to "stop" a channel after previewing it
+- Fix bug where deco default filler would never use hardware acceleration
+- Fix deleting local libraries with MySql backend
+- Fix `Scaling Behavior` `Crop` when content is smaller than FFmpeg Profile resolution
+  - Now, content will properly scale beyond the desired resolution before cropping
+- Fix displaying playout item durations that are greater than 24 hours
+- Fix building playouts when playlist has been changed to have fewer items
+- Fix selecting audio stream with preferred title
+- Fix synchronizing Plex collections
+  - If this breaks collection sync for you, you will need to update your Plex server
+- Fix guide group generation for `duration` YAML instructions
+
+## [0.8.8-beta] - 2024-09-19
+### Added
+- Add support for Plex Other Video libraries
+  - These libraries will now appear as ETV Other Video libraries
+  - Items in these libraries will have tag metadata added from folders just like local Other Video libraries
+  - Thanks @raknam for adding this feature!
+- Add *experimental* support for `On Demand` channel progress
+  - With `On Demand` channel progress, the playout will only advance when the channel is being streamed
+  - When the channel is idle, the playout is unmodified and will be shifted forward as needed so no content is missed
+  - Setting a channel to `On Demand` progress will disable alternate schedules
+  - The `On Demand` setting will only be used for `Flood` playouts (NOT `Block` or `External JSON`)
+  - It is NOT recommended to use fixed start times with `On Demand` progress
+    - This will probably be disabled with a future update
+- Add `Default Filler` to `Deco` system
+  - After all blocks are scheduled/added to the playout, a second pass will be made to insert filler
+  - Default filler will be shuffled and inserted in all unscheduled time between blocks
+  - Default filler will stop scheduling when the next item would extend into primary content
+  - Alternatively, default filler can be configured to `Trim To Fit`
+    - In this case, the last item that would extend into primary content is trimmed to end exactly when the primary content starts
+- Add **experimental** playout type `YAML`
+  - This playout type uses a YAML file to declare content and describe how the playout should be built
+  - Content currently supports search queries
+  - Playout instructions currently include `count`, `pad to next`, and `repeat`
+    - `count`: add the specified number of items (from the referenced content) to the playout
+    - `duration`: play the referenced content for the specified duration
+    - `pad to next`: add items from the referenced content until the wall clock is a multiple of the specified minutes value
+    - `repeat`: continue building the playout from the first instruction in the YAML file
+- Add channel logo generation by @raknam
+  - Channels without custom uploaded logos will automatically generate a logo that includes the channel name
+- Add two new API endpoints
+  - Reset playout for channel
+    - POST `/api/channels/{channelNumber}/playout/reset`
+  - Scan library
+    - POST `/api/libraries/{libraryId}/scan`
+- Add Deco setting to `Use Watermark During Filler`
+  - This setting is turned OFF by default, meaning filler will NOT use the configured watermark unless this is manually turned on
+- Add `Random Count` filler mode by @embolon
+  - This mode will randomly schedule between zero and the provided count number of items
+  - e.g. random count 3 will schedule between 0 and 3 filler items
+- Add `Random Rotation` playback order for block scheduling by @embolon
+  - This playback order will pick a random item from a randomly selected group (show or artist)
+  - It is somewhat similar to the `Fill With Group` mode used in flood scheduling
+
+### Fixed
+- Add basic cache busting to XMLTV image URLs
+  - This should help with clients not showing correct channel logos or posters
+- Fix artwork in other video libraries by @raknam
+- Fix adding items to empty playlists
+- Fix filler preset editor and deco dead air fallback editor to only show supported collection types
+- Fix infinite loop caused by impossible schedule (all collection items longer than schedule item duration)
+- Fix selecting audio and subtitle streams with two-letter language codes
+- Fix adding pad filler to content that is less than one minute in duration
+- Generate unique identifier for virtual HDHomeRun tuner by @raknam
+  - This allows a single Plex server to connect to multiple ETV instances
+- Include *all* language codes from media library in preferred audio and subtitle language options
+  - Language codes where an English name cannot be found will be at the bottom of the list
+- Fix local libraries to detect external subtitle files with unrecognized language codes
+- Fix playback selection of subtitles with unrecognized language codes
+- Fix incorrectly removing block items that are hidden from EPG when deco filler is applied
+- Fix deco selection when deco is scheduled until midnight
+  - Previously, this deco item would be ignored so watermark and filler would be missing
+- Fix movies with missing medata by generating fallback metadata
+  - This allows these movies to appear in the Trash where they can be deleted
+- Fix synchronizing trakt lists from users with special characters in their username
+  - Note that these lists MUST be added as URLs; the short-form `user/list` will NOT work with special characters
+- Fix local subtitle scanner to detect non-lowercase extensions (e.g. `Movie (2000).EN.SRT`)
+- Fix adding a single image to a manual collection from search results
+- Fix loading manual collection view when collection contains images
+- Fix edge case where block playout history would get stuck and repeat an item
+- Fix adjusting watermark opacity when watermark already contains alpha channel (is already transparent)
+
+### Changed
+- Remove some unnecessary API calls related to media server scanning and paging
+- Improve trakt list URL validation; non-trakt URLs will no longer be requested
+- Prevent saving block templates when blocks are overlapping
+  - This can happen if block durations are changed for blocks that are already on the template
+- Redirect variant playlist request to proper URL for starting `HLS Segmenter` session when no session is active
+  - This can happen when some clients "pause" long enough for the session to stop in ETV
+  - When the client resumes playback, it requests the temp playlist URL which is now invalid e.g. `/iptv/session/1/hls.m3u8` (not the original URL `/iptv/channel/1.m3u8`)
+  - To fix, the client will be redirected back to the original URL in this case which will create a new session
+
+## [0.8.7-beta] - 2024-06-26
 ### Added
 - Add `Active Date Range` to block playout template editor to allow limiting templates to a specific date range
   - This is year-agnostic, meaning the Month/Day range will apply to every year
@@ -26,7 +140,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - ETV versions through v0.8.4-beta (using dotnet 7) stored config data in `$HOME/.local/share/ersatztv`
   - ETV versions starting with v0.8.5-beta (using dotnet 8) store config data in `$HOME/Library/Application Support/ersatztv`
   - If a dotnet 8 version of ETV has NOT been launched on MacOS, it will automatically migrate the config folder on startup
-  - If a dotnet 8 version of ETV *has* been launched on MacOS, a failing health check will display with instructions on how to resolve the config issue to restore data 
+  - If a dotnet 8 version of ETV *has* been launched on MacOS, a failing health check will display with instructions on how to resolve the config issue to restore data
 - Add `Video Profile` setting to `FFmpeg Profile` editor when `h264` format is selected
 - Add `Video Preset` setting to `FFmpeg Profile` editor for some combinations of acceleration and video format:
   - `Nvenc` / `h264`
@@ -58,10 +172,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
       - Every episode from Show 2 Season 3
       - Every episode from Show 1 Season 3
   - Playlist items with fewer media items will be re-shuffled (if applicable) before those with more media items
+- Add two new environment variables to customize config and transcode folder locations
+  - `ETV_CONFIG_FOLDER`
+  - `ETV_TRANSCODE_FOLDER`
+- Add checkbox to allow use of B-frames in FFmpeg Profile (disabled by default)
 
 ### Fixed
 - Fix some cases of 404s from Plex when files were replaced and scanning the library from ETV didn't help
 - Fix more wildcard search phrase queries (when wildcards are used in quotes, like `title:"law & order*"`)
+- Fix non-wildcard simple queries when asterisks are used in quotes, like `title:"m*a*s*h"`
 - Fix bug where channels would unnecessarily wait on each other
   - e.g. in-progress streams would delay responding with a playlist when new streams were starting
 - Update Plex show title in ETV when changed in Plex
@@ -72,15 +191,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `Something.sdh.en.srt`
   - `Something.en.forced.srt`
   - `Something.en.sdh.srt`
-- Fix playback from Jellyfin 10.9 by allowing playlist HTTP HEAD requests 
+- Fix playback from Jellyfin 10.9 by allowing playlist HTTP HEAD requests
 - Fix `HLS Segmenter V2` segment duration (previously 10s, now 4s)
 - Fix `HLS Segmenter V2` error video generation
 - Fix MySql database migrations
 - Fix Plex library scans with MySql/MariaDB
 - Fix block playout playback when no deco is configured
+- Fix `HLS Segmenter V2` to delete old segments (use less disk space while channel is active)
+- Fix template and deco template editors to prevent items that go beyond midnight
+- Fix block playout random seeds
+  - Different blocks within a single playout will now correctly use different random seeds (shuffles)
+  - Erasing block playout history will also generate new random seeds for the playout
+- Fix building playouts that use mid-roll filler and have content without chapter markers
+  - When this happens, mid-roll will be treated as post-roll
+- Fix VAAPI decoder capability check
+  - This caused some streams to incorrectly use software decoding
+- Fix scheduling loop/failure caused by some duration schedule items
+- Fix `video_bit_depth` search field for Plex media
+- Fix template and deco template editors with MariaDB/MySql backend
+- Fix transcoding 10-bit source content using QSV acceleration on Windows
 
 ### Changed
-- Use ffmpeg 7 in all docker images 
 - Show health checks at top of home page; scroll release notes if needed
 - Improve `HLS Segmenter V2` compliance by:
   - Serving fmp4 segments when `hevc` video format is selected
@@ -88,6 +219,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Using accurate BANDWIDTH value in multi-variant playlist
   - Using proper MIME types for statically-served `.m3u8` and `.ts` files
   - Serving playlists with gzip compression
+- Use `HLS Segmenter V2` for channel preview when channel is configured for `HLS Segmenter V2`
+- Detect and use `/dev/dri/card*` devices in addition to `/dev/dri/render*` devices
+- Change default folder locations in docker using new environment variables
+    - `ETV_CONFIG_FOLDER` - now defaults to `/config`
+    - `ETV_TRANSCODE_FOLDER` - now defaults to `/transcode`
+    - If the old locations are still present in docker, these variables will be ignored, so you can migrate at your own pace
+      - Old config location: `/root/.local/share/ersatztv`
+      - Old transcode location: `/root/.local/share/etv-transcode`
 
 ## [0.8.6-beta] - 2024-04-03
 ### Added
@@ -128,8 +267,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix bug applying music video fallback metadata
 - Fix playback of media items with no audio streams
 - Fix timestamp continuity in `HLS Segmenter` sessions
-  - This should make *some* clients happier 
-- Fix `Other Video`, `Song` and `Image` fallback metadata tags to always include parent folder (folder added to library) 
+  - This should make *some* clients happier
+- Fix `Other Video`, `Song` and `Image` fallback metadata tags to always include parent folder (folder added to library)
 - Allow playback of items with any positive duration, including less than one second
 - Fix VAAPI transcoding of OTA content containing A53 CC data
 - Fix AV1 software decoder priority (`libdav1d`, `libaom-av1`, `av1`)
@@ -185,11 +324,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - GET `/api/sessions`
     - Show brief info about all active sessions
   - DELETE `/api/session/{channel-number}`
-    - Stop the session for the given channel number 
+    - Stop the session for the given channel number
 - Add channel preview (web-based video player)
   - Channels MUST use `H264` video format and `AAC` audio format
   - Channels MUST use `MPEG-TS` or `HLS Segmenter` streaming modes
-    - Since `MPEG-TS` uses `HLS Segmenter` under the hood, the preview player will use `HLS Segmenter`, so it's not 100% equivalent, but it should be representative 
+    - Since `MPEG-TS` uses `HLS Segmenter` under the hood, the preview player will use `HLS Segmenter`, so it's not 100% equivalent, but it should be representative
 - Add button to stop transcoding session for each channel that has an active session
 - Add more log levels to `Settings` page, allowing more specific debug logging as needed
     - Default Minimum Log Level (applies when no other categories/level overrides match)
@@ -205,10 +344,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Update show year when changed within Plex
 - Fix crop scale behavior with NVIDIA, QSV acceleration
 - Fix bug that corrupted uploaded images (watermarks, channel logos)
-  - Re-uploading images should fix them 
+  - Re-uploading images should fix them
 - Recreate XMLTV channel list (including logos) when channels are edited in ErsatzTV
-  - This bug caused the ErsatzTV logo to be used instead of channel logos in some cases 
-- Update drop down search results in main search bar when items are created/edited/removed 
+  - This bug caused the ErsatzTV logo to be used instead of channel logos in some cases
+- Update drop down search results in main search bar when items are created/edited/removed
 - Fix green line at bottom of video when NVIDIA accel is used with intermittent watermark
 - Fix error starting streaming session when subtitles are still being extracted for the current item
 
@@ -328,7 +467,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - Only allow a single instance of ErsatzTV to run
   - This fixes some cases where the search index would become unusable
-- Fix VAAPI rate control mode capability check 
+- Fix VAAPI rate control mode capability check
 
 ### Changed
 - Rework startup process to show UI as early as possible
@@ -374,14 +513,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     - `MKV` output format: stream copy any embedded subtitles
 
 ### Fixed
-- Fix extracting embedded text subtitles that had been incompletely extracted in the past 
+- Fix extracting embedded text subtitles that had been incompletely extracted in the past
 - Fix fallback filler looping by forcing software mode for this content
   - Other content will still use hardware acceleration as configured
   - Hardware-accelerated fallback filler may be re-enabled in the future
 - Fix playout building when shuffle in order is used with a single media item
 - Fix pgs subtitle burn in from media server libraries
 - Fix subtitle and watermark overlays with RadeonSI VAAPI driver
-- Fix NVIDIA pipeline to use hardware-accelerated decoder with 8-bit h264 content   
+- Fix NVIDIA pipeline to use hardware-accelerated decoder with 8-bit h264 content
 
 ### Changed
 - Timeout playout builds after 2 minutes; this should prevent playout bugs from blocking other functionality
@@ -431,7 +570,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 - Use Poster artwork for XMLTV if available
   - If Poster artwork is unavailable, use Thumbnail
-- Improve XMLTV response time by caching data as playouts are updated 
+- Improve XMLTV response time by caching data as playouts are updated
 
 ## [0.7.6-beta] - 2023-03-24
 ### Added
@@ -525,13 +664,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 - Merge generated `Other Video` folder tags with tags from sidecar NFO
 - Prioritize audio streams that are flagged as "default" when multiple candidate streams are available
-  - For example, a video with a stereo commentary track and a stereo "default" track will now prefer the "default" track 
+  - For example, a video with a stereo commentary track and a stereo "default" track will now prefer the "default" track
 
 ## [0.7.3-beta] - 2023-01-25
 ### Added
 - Attempt to release memory periodically
 - Add OpenID Connect (OIDC) support (e.g. Keycloak, Authelia, Auth0)
-  - This only protects the management UI; all streaming endpoints will continue to allow anonymous access 
+  - This only protects the management UI; all streaming endpoints will continue to allow anonymous access
   - This can be configured with the following env vars (note the double underscore separator `__`)
     - `OIDC__AUTHORITY`
     - `OIDC__CLIENTID`
@@ -549,7 +688,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     - Day of week
     - Day of month
     - Month
-  - The lowest priority (bottom) item will always match all parameters, and can be considered a "default" or "fallback" schedule 
+  - The lowest priority (bottom) item will always match all parameters, and can be considered a "default" or "fallback" schedule
 
 ### Fixed
 - Fix schedule editor crashing due to bad music video artist data
@@ -581,7 +720,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix song playback with VAAPI and NVENC
 - Fix edge case where some local movies would not automatically be restored from trash
 - Fix synchronizing Jellyfin and Emby collection items
-- Fix saving some external subtitle records to database 
+- Fix saving some external subtitle records to database
 
 ### Changed
 - Upgrade to dotnet 7
@@ -659,7 +798,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - Add music video credits template system
-  - Templates are selected in each channel's settings 
+  - Templates are selected in each channel's settings
   - Templates should be copied from `_default.ass.sbntxt` which is located in the config subfolder `templates/music-video-credits`
     - Copy the file, give it any name ending with `.ass.sbntext`, and only make edits to the copied file
   - The default template will be extracted and overwritten every time ErsatzTV is started
@@ -734,7 +873,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Replace `setsar` filter with `setdar` filter
   - `setsar` caused issues scaling between two different aspect ratios
     - For example, some 4:3 content would appear stretched when scaled to a 16:9 resolution
-  - `setdar` is now only used when aspect ratios match 
+  - `setdar` is now only used when aspect ratios match
 - Prioritize aspect ratio from container when video stream contains conflicting aspect ratio
   - This is usually caused by bad authoring, but the change should improve scaling behavior for edge cases
 
@@ -837,7 +976,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Reduce memory use due to library scan operations
 - Fix some instances of filler getting "stuck" when a filler item is encountered that's too long for the gap
 - Properly ignore Plex `Other Videos` libraries (`movie` libraries where agent is `com.plexapp.agents.none`)
-- Fix `Custom Title` for schedule items with `One`, `Multiple` and `Flood` playout modes 
+- Fix `Custom Title` for schedule items with `One`, `Multiple` and `Flood` playout modes
 - Fix scheduling bug where flood items would sometimes fail to continue after midnight
 
 ### Added
@@ -867,7 +1006,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix occasional erroneous log messages when HLS channel playback times out because all clients have left
 - Fix fallback filler playback
 - Fix stream continuity when error messages are displayed
-- Fix duplicate scanning within `Other Video` libraries (i.e. folders would be scanned multiple times) 
+- Fix duplicate scanning within `Other Video` libraries (i.e. folders would be scanned multiple times)
 
 ### Added
 - Add `show_genre` and `show_tag` to search index for seasons and episodes
@@ -955,7 +1094,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix setting VAAPI driver name
 - Fix ffmpeg troubleshooting reports
 - Fix bug where filler would behave as if it were configured to pad even though a different mode was selected
-- Fix bug where mid-roll count filler would skip scheduling the final chapter in an episode 
+- Fix bug where mid-roll count filler would skip scheduling the final chapter in an episode
 
 ### Added
 - Add `Empty Trash` button to `Trash` page
@@ -1262,7 +1401,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - When streaming is attempted during an unscheduled gap, the resulting video will be determined using the following priority:
     - Channel fallback filler
     - Global fallback filler
-    - Generated `Channel Is Offline` error message video 
+    - Generated `Channel Is Offline` error message video
 
 ### Changed
 - Allow per-episode folders for local show libraries
@@ -1370,7 +1509,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [0.1.0-alpha] - 2021-10-08
 ### Added
-- Add *experimental* streaming mode `HLS Segmenter` (most similar to `HLS Hybrid`) 
+- Add *experimental* streaming mode `HLS Segmenter` (most similar to `HLS Hybrid`)
   - This mode is intended to increase client compatibility and reduce issues at program boundaries
   - If you want the temporary transcode files to be located on a particular drive, the docker path is `/root/.local/share/etv-transcode`
 - Store frame rate with media statistics; this is needed to support HLS Segmenter
@@ -1406,7 +1545,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - See `Logs` for unmatched item details
   - Trakt lists can only be scheduled by using Smart Collections
 - Add seasons to search index
-  - This is needed because Trakt lists can contain seasons 
+  - This is needed because Trakt lists can contain seasons
   - This requires rebuilding the search index and search results may be empty or incomplete until the rebuild is complete
 
 ### Fixed
@@ -1758,7 +1897,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Limit channels to one playout per channel
     - Though more than one playout was previously possible it was unsupported and unlikely to work as expected, if at all
     - A future release may make this possible again
-    
+
 ## [0.0.32-prealpha] - 2021-04-09
 ### Added
 - `Add All To Collection` button to quickly add all search results to a collection
@@ -2023,7 +2162,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Initial release to facilitate testing outside of Docker.
 
 
-[Unreleased]: https://github.com/ErsatzTV/ErsatzTV/compare/v0.8.6-beta...HEAD
+[Unreleased]: https://github.com/ErsatzTV/ErsatzTV/compare/v0.8.8-beta...HEAD
+[0.8.8-beta]: https://github.com/ErsatzTV/ErsatzTV/compare/v0.8.7-beta...v0.8.8-beta
+[0.8.7-beta]: https://github.com/ErsatzTV/ErsatzTV/compare/v0.8.6-beta...v0.8.7-beta
 [0.8.6-beta]: https://github.com/ErsatzTV/ErsatzTV/compare/v0.8.5-beta...v0.8.6-beta
 [0.8.5-beta]: https://github.com/ErsatzTV/ErsatzTV/compare/v0.8.4-beta...v0.8.5-beta
 [0.8.4-beta]: https://github.com/ErsatzTV/ErsatzTV/compare/v0.8.3-beta...v0.8.4-beta

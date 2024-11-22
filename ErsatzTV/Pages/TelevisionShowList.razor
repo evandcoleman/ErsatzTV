@@ -3,10 +3,10 @@
 @inherits MultiSelectBase<TelevisionShowList>
 @inject NavigationManager NavigationManager
 @inject PersistentComponentState ApplicationState
-@using ErsatzTV.Extensions
 @using ErsatzTV.Application.MediaCards
 @using ErsatzTV.Application.MediaCollections
 @using ErsatzTV.Application.Search
+@using ErsatzTV.Extensions
 @implements IDisposable
 
 <MudPaper Square="true" Style="display: flex; height: 64px; left: 240px; padding: 0; position: fixed; right: 0; z-index: 100;">
@@ -62,7 +62,7 @@
     <MudContainer MaxWidth="MaxWidth.False" Class="media-card-grid">
         <FragmentLetterAnchor TCard="TelevisionShowCardViewModel" Cards="@_data.Cards">
             <MediaCard Data="@context"
-                       Link="@($"media/tv/shows/{context.TelevisionShowId}")"
+                       Href="@($"media/tv/shows/{context.TelevisionShowId}")"
                        AddToCollectionClicked="@AddToCollection"
                        SelectClicked="@(e => SelectClicked(context, e))"
                        IsSelected="@IsSelected(context)"

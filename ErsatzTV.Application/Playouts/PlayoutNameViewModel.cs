@@ -7,6 +7,11 @@ public record PlayoutNameViewModel(
     ProgramSchedulePlayoutType PlayoutType,
     string ChannelName,
     string ChannelNumber,
+    ChannelProgressMode ProgressMode,
     string ScheduleName,
+    string TemplateFile,
     string ExternalJsonFile,
-    Option<TimeSpan> DailyRebuildTime);
+    TimeSpan? DbDailyRebuildTime)
+{
+    public Option<TimeSpan> DailyRebuildTime => Optional(DbDailyRebuildTime);
+}

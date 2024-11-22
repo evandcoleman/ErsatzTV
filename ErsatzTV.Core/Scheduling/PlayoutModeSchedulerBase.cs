@@ -11,6 +11,8 @@ namespace ErsatzTV.Core.Scheduling;
 [SuppressMessage("Design", "CA1000:Do not declare static members on generic types")]
 public abstract class PlayoutModeSchedulerBase<T> : IPlayoutModeScheduler<T> where T : ProgramScheduleItem
 {
+    private readonly Random _random = new();
+
     protected PlayoutModeSchedulerBase(ILogger logger) => Logger = logger;
     protected ILogger Logger { get; }
 
@@ -243,7 +245,41 @@ public abstract class PlayoutModeSchedulerBase<T> : IPlayoutModeScheduler<T> whe
         List<MediaChapter> effectiveChapters = chapters;
         if (allFiller.All(fp => fp.FillerKind != FillerKind.MidRoll) || effectiveChapters.Count <= 1)
         {
-            effectiveChapters = new List<MediaChapter>();
+            effectiveChapters = [];
+        }
+
+        // convert mid-roll to post-roll if we have no chapters
+        if (allFiller.Any(f => f.FillerKind is FillerKind.MidRoll) && effectiveChapters.Count == 0)
+        {
+            Logger.LogInformation(
+                "Converting mid-roll filler preset to post-roll for content that has no chapter markers");
+
+            var toRemove = allFiller.Filter(f => f.FillerKind is FillerKind.MidRoll).ToList();
+            allFiller.RemoveAll(toRemove.Contains);
+
+            foreach (FillerPreset midRollFiller in toRemove)
+            {
+                var clone = new FillerPreset
+                {
+                    FillerKind = FillerKind.PostRoll,
+                    FillerMode = midRollFiller.FillerMode,
+                    Duration = midRollFiller.Duration,
+                    Count = midRollFiller.Count,
+                    PadToNearestMinute = midRollFiller.PadToNearestMinute,
+                    AllowWatermarks = midRollFiller.AllowWatermarks,
+                    CollectionType = midRollFiller.CollectionType,
+                    CollectionId = midRollFiller.CollectionId,
+                    Collection = midRollFiller.Collection,
+                    MediaItemId = midRollFiller.MediaItemId,
+                    MediaItem = midRollFiller.MediaItem,
+                    MultiCollectionId = midRollFiller.MultiCollectionId,
+                    MultiCollection = midRollFiller.MultiCollection,
+                    SmartCollectionId = midRollFiller.SmartCollectionId,
+                    SmartCollection = midRollFiller.SmartCollection
+                };
+
+                allFiller.Add(clone);
+            }
         }
 
         foreach (FillerPreset filler in allFiller.Filter(
@@ -269,6 +305,17 @@ public abstract class PlayoutModeSchedulerBase<T> : IPlayoutModeScheduler<T> whe
                         AddCountFiller(
                             playoutBuilderState,
                             e2,
+                            filler.Count.Value,
+                            FillerKind.PreRoll,
+                            filler.AllowWatermarks,
+                            cancellationToken));
+                    break;
+                case FillerMode.RandomCount when filler.Count.HasValue:
+                    IMediaCollectionEnumerator e3 = enumerators[CollectionKey.ForFillerPreset(filler)];
+                    result.AddRange(
+                        AddRandomCountFiller(
+                            playoutBuilderState,
+                            e3,
                             filler.Count.Value,
                             FillerKind.PreRoll,
                             filler.AllowWatermarks,
@@ -327,6 +374,25 @@ public abstract class PlayoutModeSchedulerBase<T> : IPlayoutModeScheduler<T> whe
                         }
 
                         break;
+                    case FillerMode.RandomCount when filler.Count.HasValue:
+                        IMediaCollectionEnumerator e3 = enumerators[CollectionKey.ForFillerPreset(filler)];
+                        for (var i = 0; i < effectiveChapters.Count; i++)
+                        {
+                            result.Add(playoutItem.ForChapter(effectiveChapters[i]));
+                            if (i < effectiveChapters.Count - 1)
+                            {
+                                result.AddRange(
+                                    AddRandomCountFiller(
+                                        playoutBuilderState,
+                                        e3,
+                                        filler.Count.Value,
+                                        FillerKind.MidRoll,
+                                        filler.AllowWatermarks,
+                                        cancellationToken));
+                            }
+                        }
+
+                        break;
                 }
             }
         }
@@ -359,6 +425,17 @@ public abstract class PlayoutModeSchedulerBase<T> : IPlayoutModeScheduler<T> whe
                             filler.AllowWatermarks,
                             cancellationToken));
                     break;
+                case FillerMode.RandomCount when filler.Count.HasValue:
+                    IMediaCollectionEnumerator e3 = enumerators[CollectionKey.ForFillerPreset(filler)];
+                    result.AddRange(
+                        AddRandomCountFiller(
+                            playoutBuilderState,
+                            e3,
+                            filler.Count.Value,
+                            FillerKind.PostRoll,
+                            filler.AllowWatermarks,
+                            cancellationToken));
+                    break;
             }
         }
 
@@ -383,7 +460,6 @@ public abstract class PlayoutModeSchedulerBase<T> : IPlayoutModeScheduler<T> whe
                                               TimeSpan.FromMinutes(currentMinute) +
                                               TimeSpan.FromMinutes(targetMinute);
 
-
             var targetTime = new DateTimeOffset(
                 almostTargetTime.Year,
                 almostTargetTime.Month,
@@ -393,12 +469,17 @@ public abstract class PlayoutModeSchedulerBase<T> : IPlayoutModeScheduler<T> whe
                 0,
                 almostTargetTime.Offset);
 
+            // ensure filler works for content less than one minute
+            if (targetTime <= playoutItem.StartOffset + totalDuration)
+                targetTime = targetTime.AddMinutes(padFiller.PadToNearestMinute.Value);
+
             TimeSpan remainingToFill = targetTime - totalDuration - playoutItem.StartOffset;
 
-            // _logger.LogInformation(
-            //     "Total duration {TotalDuration}; need to fill {TimeSpan} to pad properly to {TargetTime}",
+            // Logger.LogInformation(
+            //     "Total duration {TotalDuration}; need to fill {TimeSpan} to pad properly from {StartTime} to {TargetTime}",
             //     totalDuration,
             //     remainingToFill,
+            //     playoutItem.StartOffset,
             //     targetTime);
 
             switch (padFiller.FillerKind)
@@ -660,5 +741,31 @@ public abstract class PlayoutModeSchedulerBase<T> : IPlayoutModeScheduler<T> whe
         }
 
         return None;
+    }
+
+    private List<PlayoutItem> AddRandomCountFiller(
+        PlayoutBuilderState playoutBuilderState,
+        IMediaCollectionEnumerator enumerator,
+        int count,
+        FillerKind fillerKind,
+        bool allowWatermarks,
+        CancellationToken cancellationToken)
+    {
+        var result = new List<PlayoutItem>();
+        // randomCount is from 0 to count.
+        int randomCount = _random.Next(count + 1);
+
+        if (randomCount != 0)
+        {
+            result = AddCountFiller(
+                playoutBuilderState,
+                enumerator,
+                randomCount,
+                fillerKind,
+                allowWatermarks,
+                cancellationToken);
+        }
+
+        return result;
     }
 }

@@ -16,6 +16,7 @@ internal static class Mapper
             GetLogo(channel),
             channel.PreferredAudioLanguageCode,
             channel.PreferredAudioTitle,
+            channel.ProgressMode,
             channel.StreamingMode,
             channel.WatermarkId,
             channel.FallbackFillerId,
@@ -23,7 +24,8 @@ internal static class Mapper
             channel.PreferredSubtitleLanguageCode,
             channel.SubtitleMode,
             channel.MusicVideoCreditsMode,
-            channel.MusicVideoCreditsTemplate);
+            channel.MusicVideoCreditsTemplate,
+            channel.SongVideoMode);
 
     internal static ChannelResponseModel ProjectToResponseModel(Channel channel) =>
         new(

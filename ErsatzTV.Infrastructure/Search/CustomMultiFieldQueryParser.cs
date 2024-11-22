@@ -12,9 +12,6 @@ namespace ErsatzTV.Infrastructure.Search;
 
 public class CustomMultiFieldQueryParser : MultiFieldQueryParser
 {
-    private readonly LuceneVersion _matchVersion;
-    private readonly Analyzer _analyzer;
-
     private static readonly List<string> NumericFields =
     [
         LuceneSearchIndex.MinutesField,
@@ -25,6 +22,9 @@ public class CustomMultiFieldQueryParser : MultiFieldQueryParser
         LuceneSearchIndex.EpisodeNumberField,
         LuceneSearchIndex.VideoBitDepthField
     ];
+
+    private readonly Analyzer _analyzer;
+    private readonly LuceneVersion _matchVersion;
 
     public CustomMultiFieldQueryParser(
         LuceneVersion matchVersion,
@@ -96,20 +96,20 @@ public class CustomMultiFieldQueryParser : MultiFieldQueryParser
         }
 
         // assume asterisk always means wildcard
-        if (queryText.Contains('*'))
+        if (queryText.Contains('*') && queryText.Contains(' '))
         {
             var parser = new ComplexPhraseQueryParser(_matchVersion, LuceneSearchIndex.TitleField, _analyzer)
             {
                 AllowLeadingWildcard = true
             };
-            
+
             string queryToParse = string.IsNullOrWhiteSpace(field)
                 ? $"\"{queryText}\""
                 : $"{field}:\"{queryText}\"";
 
             return parser.Parse(queryToParse);
         }
-        
+
         return base.GetFieldQuery(field, queryText, slop);
     }
 

@@ -1,6 +1,6 @@
 ﻿FROM mcr.microsoft.com/dotnet/aspnet:8.0-jammy-amd64 AS dotnet-runtime
 
-FROM jasongdove/ersatztv-ffmpeg:7.0 AS runtime-base
+FROM jasongdove/ersatztv-ffmpeg:6.1 AS runtime-base
 COPY --from=dotnet-runtime /usr/share/dotnet /usr/share/dotnet
 
 # https://hub.docker.com/_/microsoft-dotnet
@@ -10,8 +10,6 @@ WORKDIR /source
 
 # copy csproj and restore as distinct layers
 COPY *.sln .
-COPY nuget.config .
-COPY lib/nuget/* ./lib/nuget/
 COPY artwork/* ./artwork/
 COPY ErsatzTV/*.csproj ./ErsatzTV/
 COPY ErsatzTV.Application/*.csproj ./ErsatzTV.Application/
@@ -46,4 +44,6 @@ RUN fc-cache update
 WORKDIR /app
 EXPOSE 8409
 COPY --from=build /app ./
+ENV ETV_CONFIG_FOLDER=/config
+ENV ETV_TRANSCODE_FOLDER=/transcode
 ENTRYPOINT ["./ErsatzTV"]

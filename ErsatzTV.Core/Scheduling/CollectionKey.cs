@@ -13,7 +13,7 @@ public class CollectionKey : Record<CollectionKey>
     public int? MediaItemId { get; set; }
     public int? PlaylistId { get; set; }
     public string FakeCollectionKey { get; set; }
-    
+
     public static CollectionKey ForPlaylistItem(PlaylistItem item) =>
         item.CollectionType switch
         {
@@ -152,6 +152,76 @@ public class CollectionKey : Record<CollectionKey>
                 MediaItemId = item.MediaItemId
             },
             _ => throw new ArgumentOutOfRangeException(nameof(item))
+        };
+
+    public static CollectionKey ForDecoDefaultFiller(Deco deco) =>
+        deco.DefaultFillerCollectionType switch
+        {
+            ProgramScheduleItemCollectionType.Collection => new CollectionKey
+            {
+                CollectionType = deco.DefaultFillerCollectionType,
+                CollectionId = deco.DefaultFillerCollectionId
+            },
+            ProgramScheduleItemCollectionType.TelevisionShow => new CollectionKey
+            {
+                CollectionType = deco.DefaultFillerCollectionType,
+                MediaItemId = deco.DefaultFillerMediaItemId
+            },
+            ProgramScheduleItemCollectionType.TelevisionSeason => new CollectionKey
+            {
+                CollectionType = deco.DefaultFillerCollectionType,
+                MediaItemId = deco.DefaultFillerMediaItemId
+            },
+            ProgramScheduleItemCollectionType.Artist => new CollectionKey
+            {
+                CollectionType = deco.DefaultFillerCollectionType,
+                MediaItemId = deco.DefaultFillerMediaItemId
+            },
+            ProgramScheduleItemCollectionType.MultiCollection => new CollectionKey
+            {
+                CollectionType = deco.DefaultFillerCollectionType,
+                MultiCollectionId = deco.DefaultFillerMultiCollectionId
+            },
+            ProgramScheduleItemCollectionType.SmartCollection => new CollectionKey
+            {
+                CollectionType = deco.DefaultFillerCollectionType,
+                SmartCollectionId = deco.DefaultFillerSmartCollectionId
+            },
+            ProgramScheduleItemCollectionType.FakeCollection => new CollectionKey
+            {
+                CollectionType = deco.DefaultFillerCollectionType
+            },
+            ProgramScheduleItemCollectionType.Movie => new CollectionKey
+            {
+                CollectionType = deco.DefaultFillerCollectionType,
+                MediaItemId = deco.DefaultFillerMediaItemId
+            },
+            ProgramScheduleItemCollectionType.Episode => new CollectionKey
+            {
+                CollectionType = deco.DefaultFillerCollectionType,
+                MediaItemId = deco.DefaultFillerMediaItemId
+            },
+            ProgramScheduleItemCollectionType.MusicVideo => new CollectionKey
+            {
+                CollectionType = deco.DefaultFillerCollectionType,
+                MediaItemId = deco.DefaultFillerMediaItemId
+            },
+            ProgramScheduleItemCollectionType.OtherVideo => new CollectionKey
+            {
+                CollectionType = deco.DefaultFillerCollectionType,
+                MediaItemId = deco.DefaultFillerMediaItemId
+            },
+            ProgramScheduleItemCollectionType.Song => new CollectionKey
+            {
+                CollectionType = deco.DefaultFillerCollectionType,
+                MediaItemId = deco.DefaultFillerMediaItemId
+            },
+            ProgramScheduleItemCollectionType.Image => new CollectionKey
+            {
+                CollectionType = deco.DefaultFillerCollectionType,
+                MediaItemId = deco.DefaultFillerMediaItemId
+            },
+            _ => throw new ArgumentOutOfRangeException(nameof(deco))
         };
 
     public static CollectionKey ForScheduleItem(ProgramScheduleItem item) =>

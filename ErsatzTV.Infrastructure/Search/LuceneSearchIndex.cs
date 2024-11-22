@@ -110,7 +110,7 @@ public sealed class LuceneSearchIndex : ISearchIndex
         return Task.FromResult(directoryExists && fileExists);
     }
 
-    public int Version => 43;
+    public int Version => 44;
 
     public async Task<bool> Initialize(
         ILocalFileSystem localFileSystem,
@@ -186,14 +186,14 @@ public sealed class LuceneSearchIndex : ISearchIndex
         return Unit.Default;
     }
 
-    public Task<Unit> RemoveItems(IEnumerable<int> ids)
+    public Task<bool> RemoveItems(IEnumerable<int> ids)
     {
         foreach (int id in ids)
         {
             _writer.DeleteDocuments(new Term(IdField, id.ToString(CultureInfo.InvariantCulture)));
         }
 
-        return Task.FromResult(Unit.Default);
+        return Task.FromResult(true);
     }
 
     public Task<SearchResult> Search(IClient client, string query, int skip, int limit)
@@ -540,7 +540,7 @@ public sealed class LuceneSearchIndex : ISearchIndex
         }
 
         var englishNames = new System.Collections.Generic.HashSet<string>();
-        foreach (string code in await searchRepository.GetAllLanguageCodes(mediaCodes))
+        foreach (string code in await searchRepository.GetAllThreeLetterLanguageCodes(mediaCodes))
         {
             Option<CultureInfo> maybeCultureInfo = _cultureInfos.Find(
                 ci => string.Equals(ci.ThreeLetterISOLanguageName, code, StringComparison.OrdinalIgnoreCase));
@@ -564,7 +564,7 @@ public sealed class LuceneSearchIndex : ISearchIndex
         }
 
         var englishNames = new System.Collections.Generic.HashSet<string>();
-        foreach (string code in await searchRepository.GetAllLanguageCodes(mediaCodes))
+        foreach (string code in await searchRepository.GetAllThreeLetterLanguageCodes(mediaCodes))
         {
             Option<CultureInfo> maybeCultureInfo = _cultureInfos.Find(
                 ci => string.Equals(ci.ThreeLetterISOLanguageName, code, StringComparison.OrdinalIgnoreCase));
@@ -732,7 +732,7 @@ public sealed class LuceneSearchIndex : ISearchIndex
                 {
                     doc.Add(new TextField(ShowStudioField, studio.Name, Field.Store.NO));
                 }
-                
+
                 if (!string.IsNullOrWhiteSpace(showMetadata.ContentRating))
                 {
                     foreach (string contentRating in (showMetadata.ContentRating ?? string.Empty).Split("/")
@@ -1023,7 +1023,7 @@ public sealed class LuceneSearchIndex : ISearchIndex
                     {
                         doc.Add(new TextField(ShowStudioField, studio.Name, Field.Store.NO));
                     }
-                    
+
                     if (!string.IsNullOrWhiteSpace(showMetadata.ContentRating))
                     {
                         foreach (string contentRating in (showMetadata.ContentRating ?? string.Empty).Split("/")
@@ -1033,7 +1033,7 @@ public sealed class LuceneSearchIndex : ISearchIndex
                         }
                     }
                 }
-                
+
                 if (!string.IsNullOrWhiteSpace(metadata.Title))
                 {
                     doc.Add(new TextField(TitleField, metadata.Title, Field.Store.NO));
@@ -1393,6 +1393,11 @@ public sealed class LuceneSearchIndex : ISearchIndex
                 foreach (IPixelFormat pixelFormat in maybePixelFormat)
                 {
                     doc.Add(new Int32Field(VideoBitDepthField, pixelFormat.BitDepth, Field.Store.NO));
+                }
+
+                if (maybePixelFormat.IsNone && videoStream.BitsPerRawSample > 0)
+                {
+                    doc.Add(new Int32Field(VideoBitDepthField, videoStream.BitsPerRawSample, Field.Store.NO));
                 }
 
                 var colorParams = new ColorParams(

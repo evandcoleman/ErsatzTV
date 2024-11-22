@@ -1,9 +1,9 @@
 ﻿@page "/media/images"
 @page "/media/images/page/{PageNumber:int}"
-@using ErsatzTV.Extensions
 @using ErsatzTV.Application.MediaCards
 @using ErsatzTV.Application.MediaCollections
 @using ErsatzTV.Application.Search
+@using ErsatzTV.Extensions
 @inherits MultiSelectBase<ImageList>
 @inject NavigationManager NavigationManager
 
@@ -60,7 +60,7 @@
     <MudContainer MaxWidth="MaxWidth.False" Class="media-card-grid">
         <FragmentLetterAnchor TCard="ImageCardViewModel" Cards="@_data.Cards">
             <MediaCard Data="@context"
-                       Link=""
+                       Href=""
                        ArtworkKind="ArtworkKind.Thumbnail"
                        AddToCollectionClicked="@AddToCollection"
                        SelectClicked="@(e => SelectClicked(context, e))"

@@ -156,7 +156,7 @@ public abstract class PipelineBuilderBase : IPipelineBuilder
                 isFmp4Hls = segmentTemplate.Contains("m4s");
             }
         }
-        
+
         if (ffmpegState.OutputFormat == OutputFormatKind.Mp4 || isFmp4Hls)
         {
             outputOption = new Mp4OutputOptions();
@@ -174,7 +174,7 @@ public abstract class PipelineBuilderBase : IPipelineBuilder
             new ClosedGopOutputOption()
         };
 
-        if (desiredState.VideoFormat != VideoFormat.Copy)
+        if (desiredState.VideoFormat != VideoFormat.Copy && !desiredState.AllowBFrames)
         {
             pipelineSteps.Add(new NoBFramesOutputOption());
         }
@@ -574,7 +574,8 @@ public abstract class PipelineBuilderBase : IPipelineBuilder
         return desiredState.VideoFormat switch
         {
             VideoFormat.Hevc => new EncoderLibx265(
-                currentState with { FrameDataLocation = FrameDataLocation.Software }, desiredState.VideoPreset),
+                currentState with { FrameDataLocation = FrameDataLocation.Software },
+                desiredState.VideoPreset),
             VideoFormat.H264 => new EncoderLibx264(desiredState.VideoProfile, desiredState.VideoPreset),
             VideoFormat.Mpeg2Video => new EncoderMpeg2Video(),
 
@@ -732,12 +733,21 @@ public abstract class PipelineBuilderBase : IPipelineBuilder
     protected static void SetStillImageLoop(
         VideoInputFile videoInputFile,
         VideoStream videoStream,
+        FFmpegState ffmpegState,
         FrameState desiredState,
         ICollection<IPipelineStep> pipelineSteps)
     {
         if (videoStream.StillImage)
         {
-            videoInputFile.FilterSteps.Add(new LoopFilter());
+            if (ffmpegState.IsSongWithProgress)
+            {
+                videoInputFile.FilterSteps.Add(new SongProgressFilter(videoStream.FrameSize, ffmpegState.Start, ffmpegState.Finish));
+            }
+            else
+            {
+                videoInputFile.FilterSteps.Add(new LoopFilter());
+            }
+
             if (desiredState.Realtime)
             {
                 videoInputFile.FilterSteps.Add(new RealtimeFilter());

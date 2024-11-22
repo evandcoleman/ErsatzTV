@@ -10,8 +10,6 @@ jobs:
 
       - name: Setup .NET Core
         uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
 
       - name: Clean
         run: dotnet clean --configuration Release && dotnet nuget locals all --clear
@@ -40,8 +38,6 @@ jobs:
 
       - name: Setup .NET Core
         uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
 
       - name: Clean
         run: dotnet clean --configuration Release && dotnet nuget locals all --clear
@@ -58,7 +54,7 @@ jobs:
       - name: Test
         run: dotnet test --blame-hang-timeout "2m" --no-restore --verbosity normal
   build_and_test_mac:
-    runs-on: macos-11
+    runs-on: macos-13
     steps:
       - name: Get the sources
         uses: actions/checkout@v4
@@ -68,8 +64,6 @@ jobs:
 
       - name: Setup .NET Core
         uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
 
       - name: Clean
         run: dotnet clean --configuration Release && dotnet nuget locals all --clear

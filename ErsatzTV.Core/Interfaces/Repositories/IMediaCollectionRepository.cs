@@ -6,11 +6,17 @@ namespace ErsatzTV.Core.Interfaces.Repositories;
 public interface IMediaCollectionRepository
 {
     Task<Dictionary<PlaylistItem, List<MediaItem>>> GetPlaylistItemMap(int playlistId);
+    Task<Dictionary<PlaylistItem, List<MediaItem>>> GetPlaylistItemMap(string groupName, string name);
     Task<Dictionary<PlaylistItem, List<MediaItem>>> GetPlaylistItemMap(Playlist playlist);
     Task<Option<Collection>> GetCollectionWithCollectionItemsUntracked(int id);
     Task<List<MediaItem>> GetItems(int id);
+    Task<List<MediaItem>> GetCollectionItemsByName(string name);
     Task<List<MediaItem>> GetMultiCollectionItems(int id);
+    Task<List<MediaItem>> GetMultiCollectionItemsByName(string name);
     Task<List<MediaItem>> GetSmartCollectionItems(int id);
+    Task<List<MediaItem>> GetSmartCollectionItemsByName(string name);
+    Task<List<MediaItem>> GetSmartCollectionItems(string query);
+    Task<List<MediaItem>> GetShowItemsByShowGuids(List<string> guids);
     Task<List<MediaItem>> GetPlaylistItems(int id);
     Task<List<Movie>> GetMovie(int id);
     Task<List<Episode>> GetEpisode(int id);

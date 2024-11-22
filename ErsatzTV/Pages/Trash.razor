@@ -1,10 +1,11 @@
 ﻿@page "/media/trash"
-@using ErsatzTV.Extensions
+@using ErsatzTV.Application.Maintenance
 @using ErsatzTV.Application.MediaCards
 @using ErsatzTV.Application.Search
-@using ErsatzTV.Application.Maintenance
+@using ErsatzTV.Extensions
 @inherits MultiSelectBase<Search>
-@inject NavigationManager _navigationManager
+@inject NavigationManager NavigationManager
+@inject PersistentComponentState ApplicationState
 
 <MudPaper Square="true" Style="display: flex; height: 64px; left: 240px; padding: 0; position: fixed; right: 0; z-index: 100;">
     <div style="display: flex; flex-direction: row; margin-bottom: auto; margin-top: auto; width: 100%" class="ml-6 mr-6">
@@ -29,49 +30,49 @@
         }
         else
         {
-            if (_movies?.Count > 0)
+            if (_movies?.Cards.Count > 0)
             {
-                <MudLink Class="ml-4" Href="@(_navigationManager.Uri.Split("#").Head() + "#movies")" Style="margin-bottom: auto; margin-top: auto">@_movies.Count Movies</MudLink>
+                <MudLink Class="ml-4" Href="@(NavigationManager.Uri.Split("#").Head() + "#movies")" Style="margin-bottom: auto; margin-top: auto">@_movies.Count Movies</MudLink>
             }
 
-            if (_shows?.Count > 0)
+            if (_shows?.Cards.Count > 0)
             {
-                <MudLink Class="ml-4" Href="@(_navigationManager.Uri.Split("#").Head() + "#shows")" Style="margin-bottom: auto; margin-top: auto">@_shows.Count Shows</MudLink>
+                <MudLink Class="ml-4" Href="@(NavigationManager.Uri.Split("#").Head() + "#shows")" Style="margin-bottom: auto; margin-top: auto">@_shows.Count Shows</MudLink>
             }
 
-            if (_seasons?.Count > 0)
+            if (_seasons?.Cards.Count > 0)
             {
-                <MudLink Class="ml-4" Href="@(_navigationManager.Uri.Split("#").Head() + "#seasons")" Style="margin-bottom: auto; margin-top: auto">@_seasons.Count Seasons</MudLink>
+                <MudLink Class="ml-4" Href="@(NavigationManager.Uri.Split("#").Head() + "#seasons")" Style="margin-bottom: auto; margin-top: auto">@_seasons.Count Seasons</MudLink>
             }
 
-            if (_episodes?.Count > 0)
+            if (_episodes?.Cards.Count > 0)
             {
-                <MudLink Class="ml-4" Href="@(_navigationManager.Uri.Split("#").Head() + "#episodes")" Style="margin-bottom: auto; margin-top: auto">@_episodes.Count Episodes</MudLink>
+                <MudLink Class="ml-4" Href="@(NavigationManager.Uri.Split("#").Head() + "#episodes")" Style="margin-bottom: auto; margin-top: auto">@_episodes.Count Episodes</MudLink>
             }
 
-            if (_artists?.Count > 0)
+            if (_artists?.Cards.Count > 0)
             {
-                <MudLink Class="ml-4" Href="@(_navigationManager.Uri.Split("#").Head() + "#artists")" Style="margin-bottom: auto; margin-top: auto">@_artists.Count Artists</MudLink>
+                <MudLink Class="ml-4" Href="@(NavigationManager.Uri.Split("#").Head() + "#artists")" Style="margin-bottom: auto; margin-top: auto">@_artists.Count Artists</MudLink>
             }
 
-            if (_musicVideos?.Count > 0)
+            if (_musicVideos?.Cards.Count > 0)
             {
-                <MudLink Class="ml-4" Href="@(_navigationManager.Uri.Split("#").Head() + "#music_videos")" Style="margin-bottom: auto; margin-top: auto">@_musicVideos.Count Music Videos</MudLink>
+                <MudLink Class="ml-4" Href="@(NavigationManager.Uri.Split("#").Head() + "#music_videos")" Style="margin-bottom: auto; margin-top: auto">@_musicVideos.Count Music Videos</MudLink>
             }
 
-            if (_otherVideos?.Count > 0)
+            if (_otherVideos?.Cards.Count > 0)
             {
-                <MudLink Class="ml-4" Href="@(_navigationManager.Uri.Split("#").Head() + "#other_videos")" Style="margin-bottom: auto; margin-top: auto">@_otherVideos.Count Other Videos</MudLink>
+                <MudLink Class="ml-4" Href="@(NavigationManager.Uri.Split("#").Head() + "#other_videos")" Style="margin-bottom: auto; margin-top: auto">@_otherVideos.Count Other Videos</MudLink>
             }
 
-            if (_songs?.Count > 0)
+            if (_songs?.Cards.Count > 0)
             {
-                <MudLink Class="ml-4" Href="@(_navigationManager.Uri.Split("#").Head() + "#songs")" Style="margin-bottom: auto; margin-top: auto">@_songs.Count Songs</MudLink>
+                <MudLink Class="ml-4" Href="@(NavigationManager.Uri.Split("#").Head() + "#songs")" Style="margin-bottom: auto; margin-top: auto">@_songs.Count Songs</MudLink>
             }
 
-            if (_images?.Count > 0)
+            if (_images?.Cards.Count > 0)
             {
-                <MudLink Class="ml-4" Href="@(_navigationManager.Uri.Split("#").Head() + "#images")" Style="margin-bottom: auto; margin-top: auto">@_images.Count Images</MudLink>
+                <MudLink Class="ml-4" Href="@(NavigationManager.Uri.Split("#").Head() + "#images")" Style="margin-bottom: auto; margin-top: auto">@_images.Count Images</MudLink>
             }
 
             if (IsNotEmpty)
@@ -93,7 +94,7 @@
     </div>
 </MudPaper>
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Style="margin-top: 96px">
-    @if (_movies?.Count > 0)
+    @if (_movies?.Cards.Count > 0)
     {
         <div class="mb-4" style="align-items: baseline; display: flex; flex-direction: row;">
             <MudText Typo="Typo.h4"
@@ -111,7 +112,7 @@
             @foreach (MovieCardViewModel card in _movies.Cards.OrderBy(m => m.SortTitle))
             {
                 <MediaCard Data="@card"
-                           Link="@($"media/movies/{card.MovieId}")"
+                           Href="@($"media/movies/{card.MovieId}")"
                            DeleteClicked="@DeleteItemFromDatabase"
                            SelectColor="@Color.Error"
                            SelectClicked="@(e => SelectClicked(card, e))"
@@ -121,7 +122,7 @@
         </MudContainer>
     }
 
-    @if (_shows?.Count > 0)
+    @if (_shows?.Cards.Count > 0)
     {
         <div class="mb-4" style="align-items: baseline; display: flex; flex-direction: row;">
             <MudText Typo="Typo.h4"
@@ -139,7 +140,7 @@
             @foreach (TelevisionShowCardViewModel card in _shows.Cards.OrderBy(s => s.SortTitle))
             {
                 <MediaCard Data="@card"
-                           Link="@($"media/tv/shows/{card.TelevisionShowId}")"
+                           Href="@($"media/tv/shows/{card.TelevisionShowId}")"
                            DeleteClicked="@DeleteItemFromDatabase"
                            SelectColor="@Color.Error"
                            SelectClicked="@(e => SelectClicked(card, e))"
@@ -149,7 +150,7 @@
         </MudContainer>
     }
 
-    @if (_seasons?.Count > 0)
+    @if (_seasons?.Cards.Count > 0)
     {
         <div class="mb-4" style="align-items: baseline; display: flex; flex-direction: row;">
             <MudText Typo="Typo.h4"
@@ -167,7 +168,7 @@
             @foreach (TelevisionSeasonCardViewModel card in _seasons.Cards.OrderBy(s => s.SortTitle))
             {
                 <MediaCard Data="@card"
-                           Link="@($"media/tv/seasons/{card.TelevisionSeasonId}")"
+                           Href="@($"media/tv/seasons/{card.TelevisionSeasonId}")"
                            DeleteClicked="@DeleteItemFromDatabase"
                            SelectColor="@Color.Error"
                            SelectClicked="@(e => SelectClicked(card, e))"
@@ -177,7 +178,7 @@
         </MudContainer>
     }
 
-    @if (_episodes?.Count > 0)
+    @if (_episodes?.Cards.Count > 0)
     {
         <div class="mb-4" style="align-items: baseline; display: flex; flex-direction: row;">
             <MudText Typo="Typo.h4"
@@ -197,7 +198,7 @@
                 <MediaCard Data="@card"
                            DeleteClicked="@DeleteItemFromDatabase"
                            SelectColor="@Color.Error"
-                           Link="@($"media/tv/seasons/{card.SeasonId}#episode-{card.EpisodeId}")"
+                           Href="@($"media/tv/seasons/{card.SeasonId}#episode-{card.EpisodeId}")"
                            Subtitle="@($"{card.ShowTitle} - S{card.Season} E{card.Episode}")"
                            SelectClicked="@(e => SelectClicked(card, e))"
                            IsSelected="@IsSelected(card)"
@@ -206,7 +207,7 @@
         </MudContainer>
     }
 
-    @if (_artists?.Count > 0)
+    @if (_artists?.Cards.Count > 0)
     {
         <div class="mb-4" style="align-items: baseline; display: flex; flex-direction: row;">
             <MudText Typo="Typo.h4"
@@ -224,7 +225,7 @@
             @foreach (ArtistCardViewModel card in _artists.Cards.OrderBy(s => s.SortTitle))
             {
                 <MediaCard Data="@card"
-                           Link="@($"media/music/artists/{card.ArtistId}")"
+                           Href="@($"media/music/artists/{card.ArtistId}")"
                            ArtworkKind="ArtworkKind.Thumbnail"
                            DeleteClicked="@DeleteItemFromDatabase"
                            SelectColor="@Color.Error"
@@ -235,7 +236,7 @@
         </MudContainer>
     }
 
-    @if (_musicVideos?.Count > 0)
+    @if (_musicVideos?.Cards.Count > 0)
     {
         <div class="mb-4" style="align-items: baseline; display: flex; flex-direction: row;">
             <MudText Typo="Typo.h4"
@@ -253,7 +254,7 @@
             @foreach (MusicVideoCardViewModel card in _musicVideos.Cards.OrderBy(s => s.SortTitle))
             {
                 <MediaCard Data="@card"
-                           Link=""
+                           Href=""
                            ArtworkKind="ArtworkKind.Thumbnail"
                            DeleteClicked="@DeleteItemFromDatabase"
                            SelectColor="@Color.Error"
@@ -264,7 +265,7 @@
         </MudContainer>
     }
 
-    @if (_otherVideos?.Count > 0)
+    @if (_otherVideos?.Cards.Count > 0)
     {
         <div class="mb-4" style="align-items: baseline; display: flex; flex-direction: row;">
             <MudText Typo="Typo.h4"
@@ -282,7 +283,7 @@
             @foreach (OtherVideoCardViewModel card in _otherVideos.Cards.OrderBy(s => s.SortTitle))
             {
                 <MediaCard Data="@card"
-                           Link=""
+                           Href=""
                            ArtworkKind="ArtworkKind.Thumbnail"
                            DeleteClicked="@DeleteItemFromDatabase"
                            SelectColor="@Color.Error"
@@ -293,7 +294,7 @@
         </MudContainer>
     }
 
-    @if (_songs?.Count > 0)
+    @if (_songs?.Cards.Count > 0)
     {
         <div class="mb-4" style="align-items: baseline; display: flex; flex-direction: row;">
             <MudText Typo="Typo.h4"
@@ -311,7 +312,7 @@
             @foreach (SongCardViewModel card in _songs.Cards.OrderBy(s => s.SortTitle))
             {
                 <MediaCard Data="@card"
-                           Link=""
+                           Href=""
                            ArtworkKind="ArtworkKind.Thumbnail"
                            DeleteClicked="@DeleteItemFromDatabase"
                            SelectColor="@Color.Error"
@@ -322,7 +323,7 @@
         </MudContainer>
     }
 
-    @if (_images?.Count > 0)
+    @if (_images?.Cards.Count > 0)
     {
         <div class="mb-4" style="align-items: baseline; display: flex; flex-direction: row;">
             <MudText Typo="Typo.h4"
@@ -340,7 +341,7 @@
             @foreach (ImageCardViewModel card in _images.Cards.OrderBy(s => s.SortTitle))
             {
                 <MediaCard Data="@card"
-                           Link=""
+                           Href=""
                            ArtworkKind="ArtworkKind.Thumbnail"
                            DeleteClicked="@DeleteItemFromDatabase"
                            SelectColor="@Color.Error"
@@ -353,6 +354,8 @@
 </MudContainer>
 
 @code {
+    private readonly CancellationTokenSource _cts = new();
+
     private string _query;
     private MovieCardResultsViewModel _movies;
     private TelevisionShowCardResultsViewModel _shows;
@@ -364,27 +367,102 @@
     private ImageCardResultsViewModel _images;
     private ArtistCardResultsViewModel _artists;
 
-    protected override Task OnInitializedAsync() => RefreshData();
+    private PersistingComponentStateSubscription _persistingSubscription;
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _persistingSubscription.Dispose();
+
+            _cts.Cancel();
+            _cts.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
+
+    protected override Task OnInitializedAsync()
+    {
+        _persistingSubscription = ApplicationState.RegisterOnPersisting(PersistData);
+        return base.OnInitializedAsync();
+    }
+
+    private Task PersistData()
+    {
+        ApplicationState.PersistAsJson("_movies", _movies);
+        ApplicationState.PersistAsJson("_shows", _shows);
+        ApplicationState.PersistAsJson("_seasons", _seasons);
+        ApplicationState.PersistAsJson("_episodes", _episodes);
+        ApplicationState.PersistAsJson("_musicVideos", _musicVideos);
+        ApplicationState.PersistAsJson("_otherVideos", _otherVideos);
+        ApplicationState.PersistAsJson("_songs", _songs);
+        ApplicationState.PersistAsJson("_images", _images);
+        ApplicationState.PersistAsJson("_artists", _artists);
+
+        return Task.CompletedTask;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await RefreshData();
+        await InvokeAsync(StateHasChanged);
+    }
 
     protected override async Task RefreshData()
     {
         _query = "state:FileNotFound";
         if (!string.IsNullOrWhiteSpace(_query))
         {
-            _movies = await Mediator.Send(new QuerySearchIndexMovies($"type:movie AND ({_query})", 1, 50), CancellationToken);
-            _shows = await Mediator.Send(new QuerySearchIndexShows($"type:show AND ({_query})", 1, 50), CancellationToken);
-            _seasons = await Mediator.Send(new QuerySearchIndexSeasons($"type:season AND ({_query})", 1, 50), CancellationToken);
-            _episodes = await Mediator.Send(new QuerySearchIndexEpisodes($"type:episode AND ({_query})", 1, 50), CancellationToken);
-            _musicVideos = await Mediator.Send(new QuerySearchIndexMusicVideos($"type:music_video AND ({_query})", 1, 50), CancellationToken);
-            _otherVideos = await Mediator.Send(new QuerySearchIndexOtherVideos($"type:other_video AND ({_query})", 1, 50), CancellationToken);
-            _songs = await Mediator.Send(new QuerySearchIndexSongs($"type:song AND ({_query})", 1, 50), CancellationToken);
-            _images = await Mediator.Send(new QuerySearchIndexImages($"type:image AND ({_query})", 1, 50), CancellationToken);
-            _artists = await Mediator.Send(new QuerySearchIndexArtists($"type:artist AND ({_query})", 1, 50), CancellationToken);
+            if (!ApplicationState.TryTakeFromJson("_movies", out _movies))
+            {
+                _movies = await Mediator.Send(new QuerySearchIndexMovies($"type:movie AND ({_query})", 1, 50), _cts.Token);
+            }
+
+            if (!ApplicationState.TryTakeFromJson("_shows", out _shows))
+            {
+                _shows = await Mediator.Send(new QuerySearchIndexShows($"type:show AND ({_query})", 1, 50), _cts.Token);
+            }
+
+            if (!ApplicationState.TryTakeFromJson("_seasons", out _seasons))
+            {
+                _seasons = await Mediator.Send(new QuerySearchIndexSeasons($"type:season AND ({_query})", 1, 50), _cts.Token);
+            }
+
+            if (!ApplicationState.TryTakeFromJson("_episodes", out _episodes))
+            {
+                _episodes = await Mediator.Send(new QuerySearchIndexEpisodes($"type:episode AND ({_query})", 1, 50), _cts.Token);
+            }
+
+            if (!ApplicationState.TryTakeFromJson("_musicVideos", out _musicVideos))
+            {
+                _musicVideos = await Mediator.Send(new QuerySearchIndexMusicVideos($"type:music_video AND ({_query})", 1, 50), _cts.Token);
+            }
+
+            if (!ApplicationState.TryTakeFromJson("_otherVideos", out _otherVideos))
+            {
+                _otherVideos = await Mediator.Send(new QuerySearchIndexOtherVideos($"type:other_video AND ({_query})", 1, 50), _cts.Token);
+            }
+
+            if (!ApplicationState.TryTakeFromJson("_songs", out _songs))
+            {
+                _songs = await Mediator.Send(new QuerySearchIndexSongs($"type:song AND ({_query})", 1, 50), _cts.Token);
+            }
+
+            if (!ApplicationState.TryTakeFromJson("_images", out _images))
+            {
+                _images = await Mediator.Send(new QuerySearchIndexImages($"type:image AND ({_query})", 1, 50), _cts.Token);
+            }
+
+            if (!ApplicationState.TryTakeFromJson("_artists", out _artists))
+            {
+                _artists = await Mediator.Send(new QuerySearchIndexArtists($"type:artist AND ({_query})", 1, 50), _cts.Token);
+            }
         }
     }
 
     private bool IsNotEmpty =>
-        _movies?.Count > 0 || _shows?.Count > 0 || _seasons?.Count > 0 || _episodes?.Count > 0 || _musicVideos?.Count > 0 || _otherVideos?.Count > 0 || _songs?.Count > 0 || _artists?.Count > 0 || _images?.Count > 0;
+        _movies?.Cards.Count > 0 || _shows?.Cards.Count > 0 || _seasons?.Cards.Count > 0 || _episodes?.Cards.Count > 0 || _musicVideos?.Cards.Count > 0 || _otherVideos?.Cards.Count > 0 || _songs?.Cards.Count > 0 || _artists?.Cards.Count > 0 || _images?.Cards.Count > 0;
 
     private void SelectClicked(MediaCardViewModel card, MouseEventArgs e)
     {
@@ -558,7 +636,7 @@
                     .Append(imageIds)
                     .ToList());
 
-            Either<BaseError, Unit> addResult = await Mediator.Send(request, CancellationToken);
+            Either<BaseError, Unit> addResult = await Mediator.Send(request, _cts.Token);
             await addResult.Match(
                 Left: error =>
                 {
@@ -628,11 +706,11 @@
         var parameters = new DialogParameters { { "EntityType", entityType }, { "EntityName", entityName } };
         var options = new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.ExtraSmall };
 
-        IDialogReference dialog = Dialog.Show<DeleteFromDatabaseDialog>("Delete From Database", parameters, options);
+        IDialogReference dialog = await Dialog.ShowAsync<DeleteFromDatabaseDialog>("Delete From Database", parameters, options);
         DialogResult result = await dialog.Result;
-        if (!result.Canceled)
+        if (result is not null && !result.Canceled)
         {
-            await Mediator.Send(request, CancellationToken);
+            await Mediator.Send(request, _cts.Token);
             await RefreshData();
         }
     }
@@ -645,12 +723,22 @@
         var parameters = new DialogParameters { { "EntityType", count.ToString() }, { "EntityName", "missing items" } };
         var options = new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.ExtraSmall };
 
-        IDialogReference dialog = Dialog.Show<DeleteFromDatabaseDialog>("Delete From Database", parameters, options);
+        IDialogReference dialog = await Dialog.ShowAsync<DeleteFromDatabaseDialog>("Delete From Database", parameters, options);
         DialogResult result = await dialog.Result;
-        if (!result.Canceled)
+        if (result is not null && !result.Canceled)
         {
-            await Mediator.Send(new EmptyTrash(), CancellationToken);
-            await RefreshData();
+            Either<BaseError, Unit> emptyTrashResult = await Mediator.Send(new EmptyTrash(), _cts.Token);
+            foreach (BaseError error in emptyTrashResult.LeftToSeq())
+            {
+                Snackbar.Add(error.Value, Severity.Error);
+                Logger.LogError("Unexpected error emptying trash: {Error}", error.Value);
+            }
+
+            if (emptyTrashResult.IsRight)
+            {
+                await RefreshData();
+                await InvokeAsync(StateHasChanged);
+            }
         }
     }
 

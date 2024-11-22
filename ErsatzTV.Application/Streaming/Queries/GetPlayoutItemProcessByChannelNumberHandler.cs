@@ -16,6 +16,7 @@ using ErsatzTV.Core.Interfaces.Plex;
 using ErsatzTV.Core.Interfaces.Repositories;
 using ErsatzTV.Core.Interfaces.Streaming;
 using ErsatzTV.Core.Scheduling;
+using ErsatzTV.FFmpeg.State;
 using ErsatzTV.Infrastructure.Data;
 using ErsatzTV.Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
@@ -83,7 +84,7 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
             .Include(i => i.Playout)
             .ThenInclude(p => p.Deco)
             .ThenInclude(d => d.Watermark)
-            
+
             // get playout templates (and deco templates/decos)
             .Include(i => i.Playout)
             .ThenInclude(p => p.Templates)
@@ -91,7 +92,6 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
             .ThenInclude(t => t.Items)
             .ThenInclude(i => i.Deco)
             .ThenInclude(d => d.Watermark)
-
             .Include(i => i.MediaItem)
             .ThenInclude(mi => (mi as Episode).EpisodeMetadata)
             .ThenInclude(em => em.Subtitles)
@@ -186,10 +186,9 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
                 .ThenInclude(t => t.Items)
                 .ThenInclude(i => i.Deco)
                 .ThenInclude(d => d.Watermark)
-
                 .SelectOneAsync(p => p.ChannelId, p => p.ChannelId == channel.Id);
 
-            foreach (var playout in maybePlayout)
+            foreach (Playout playout in maybePlayout)
             {
                 maybePlayoutItem = await CheckForFallbackFiller(dbContext, channel, playout, now);
             }
@@ -232,9 +231,9 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
                     watermarkId => dbContext.ChannelWatermarks
                         .SelectOneAsync(w => w.Id, w => w.Id == watermarkId));
 
-            Option<ChannelWatermark> playoutItemWatermark = Option<ChannelWatermark>.None;
+            Option<ChannelWatermark> playoutItemWatermark = Optional(playoutItemWithPath.PlayoutItem.Watermark);
             bool disableWatermarks = playoutItemWithPath.PlayoutItem.DisableWatermarks;
-            WatermarkResult watermarkResult = GetPlayoutItemWatermark(playoutItemWithPath.PlayoutItem.Playout, now);
+            WatermarkResult watermarkResult = GetPlayoutItemWatermark(playoutItemWithPath.PlayoutItem, now);
             switch (watermarkResult)
             {
                 case InheritWatermark:
@@ -258,6 +257,24 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
                     ffmpegPath,
                     ffprobePath,
                     cancellationToken);
+
+                // override watermark as song_progress_overlay.png
+                if (videoVersion is BackgroundImageMediaVersion { IsSongWithProgress: true })
+                {
+                    disableWatermarks = false;
+                    playoutItemWatermark = new ChannelWatermark
+                    {
+                        Mode = ChannelWatermarkMode.Permanent,
+                        Size = WatermarkSize.Scaled,
+                        WidthPercent = 100,
+                        HorizontalMarginPercent = 0,
+                        VerticalMarginPercent = 0,
+                        Opacity = 100,
+                        Location = WatermarkLocation.TopLeft,
+                        ImageSource = ChannelWatermarkImageSource.Resource,
+                        Image = "song_progress_overlay.png"
+                    };
+                }
             }
 
             if (playoutItemWithPath.PlayoutItem.MediaItem is Image)
@@ -459,14 +476,17 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
         DateTimeOffset now)
     {
         Option<FillerPreset> maybeFallback = Option<FillerPreset>.None;
-        
+
         DeadAirFallbackResult decoDeadAirFallback = GetDecoDeadAirFallback(playout, now);
         switch (decoDeadAirFallback)
         {
             case CustomDeadAirFallback custom:
                 maybeFallback = new FillerPreset
                 {
-                    AllowWatermarks = false, // TODO: does this need to be configurable?
+                    // always allow watermarks here
+                    // deco settings will disable watermarks if appropriate
+                    AllowWatermarks = true,
+
                     CollectionType = custom.CollectionType,
                     CollectionId = custom.CollectionId,
                     MediaItemId = custom.MediaItemId,
@@ -489,9 +509,10 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
                         .GetValue<int>(ConfigElementKey.FFmpegGlobalFallbackFillerId)
                         .BindT(fillerId => dbContext.FillerPresets.SelectOneAsync(w => w.Id, w => w.Id == fillerId));
                 }
+
                 break;
         }
-        
+
 
         foreach (FillerPreset fallbackPreset in maybeFallback)
         {
@@ -658,9 +679,9 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
         };
     }
 
-    private WatermarkResult GetPlayoutItemWatermark(Playout playout, DateTimeOffset now)
+    private WatermarkResult GetPlayoutItemWatermark(PlayoutItem playoutItem, DateTimeOffset now)
     {
-        DecoEntries decoEntries = GetDecoEntries(playout, now);
+        DecoEntries decoEntries = GetDecoEntries(playoutItem.Playout, now);
 
         // first, check deco template / active deco
         foreach (Deco templateDeco in decoEntries.TemplateDeco)
@@ -668,8 +689,14 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
             switch (templateDeco.WatermarkMode)
             {
                 case DecoMode.Override:
-                    _logger.LogDebug("Watermark will come from template deco (override)");
-                    return new CustomWatermark(templateDeco.Watermark);
+                    if (playoutItem.FillerKind is FillerKind.None || templateDeco.UseWatermarkDuringFiller)
+                    {
+                        _logger.LogDebug("Watermark will come from template deco (override)");
+                        return new CustomWatermark(templateDeco.Watermark);
+                    }
+
+                    _logger.LogDebug("Watermark is disabled by template deco during filler");
+                    return new DisableWatermark();
                 case DecoMode.Disable:
                     _logger.LogDebug("Watermark is disabled by template deco");
                     return new DisableWatermark();
@@ -685,8 +712,14 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
             switch (playoutDeco.WatermarkMode)
             {
                 case DecoMode.Override:
-                    _logger.LogDebug("Watermark will come from playout deco (override)");
-                    return new CustomWatermark(playoutDeco.Watermark);
+                    if (playoutItem.FillerKind is FillerKind.None || playoutDeco.UseWatermarkDuringFiller)
+                    {
+                        _logger.LogDebug("Watermark will come from playout deco (override)");
+                        return new CustomWatermark(playoutDeco.Watermark);
+                    }
+
+                    _logger.LogDebug("Watermark is disabled by playout deco during filler");
+                    return new DisableWatermark();
                 case DecoMode.Disable:
                     _logger.LogDebug("Watermark is disabled by playout deco");
                     return new DisableWatermark();
@@ -756,10 +789,10 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
         {
             return new DecoEntries(Option<Deco>.None, Option<Deco>.None);
         }
-        
+
         Option<Deco> maybePlayoutDeco = Optional(playout.Deco);
         Option<Deco> maybeTemplateDeco = Option<Deco>.None;
-        
+
         Option<PlayoutTemplate> maybeActiveTemplate =
             PlayoutTemplateSelector.GetPlayoutTemplateFor(playout.Templates, now);
 
@@ -767,25 +800,30 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
         {
             Option<DecoTemplateItem> maybeItem = Optional(activeTemplate.DecoTemplate)
                 .SelectMany(dt => dt.Items)
-                .Find(i => i.StartTime <= now.TimeOfDay && i.EndTime > now.TimeOfDay);
+                .Find(i => i.StartTime <= now.TimeOfDay && i.EndTime == TimeSpan.Zero || i.EndTime > now.TimeOfDay);
             foreach (DecoTemplateItem item in maybeItem)
             {
                 maybeTemplateDeco = Optional(item.Deco);
             }
         }
-        
+
         return new DecoEntries(maybeTemplateDeco, maybePlayoutDeco);
     }
 
     private sealed record DecoEntries(Option<Deco> TemplateDeco, Option<Deco> PlayoutDeco);
 
     private abstract record WatermarkResult;
+
     private sealed record InheritWatermark : WatermarkResult;
+
     private sealed record DisableWatermark : WatermarkResult;
+
     private sealed record CustomWatermark(ChannelWatermark Watermark) : WatermarkResult;
 
     private abstract record DeadAirFallbackResult;
+
     private sealed record InheritDeadAirFallback : DeadAirFallbackResult;
+
     private sealed record DisableDeadAirFallback : DeadAirFallbackResult;
 
     private sealed record CustomDeadAirFallback(

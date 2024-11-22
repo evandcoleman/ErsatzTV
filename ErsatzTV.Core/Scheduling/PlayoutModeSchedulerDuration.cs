@@ -20,6 +20,14 @@ public class PlayoutModeSchedulerDuration : PlayoutModeSchedulerBase<ProgramSche
         DateTimeOffset hardStop,
         CancellationToken cancellationToken)
     {
+        // Logger.LogDebug(
+        //     "DurationSchedule: {ItemId} {CurrentTime} {DurationFinish} {InDurationFiller} {HardStop}",
+        //     scheduleItem.Id,
+        //     playoutBuilderState.CurrentTime,
+        //     playoutBuilderState.DurationFinish,
+        //     playoutBuilderState.InDurationFiller,
+        //     hardStop);
+
         var playoutItems = new List<PlayoutItem>();
 
         PlayoutBuilderState nextState = playoutBuilderState;
@@ -30,8 +38,16 @@ public class PlayoutModeSchedulerDuration : PlayoutModeSchedulerBase<ProgramSche
 
         IMediaCollectionEnumerator contentEnumerator =
             collectionEnumerators[CollectionKey.ForScheduleItem(scheduleItem)];
-        while (contentEnumerator.Current.IsSome && nextState.CurrentTime < hardStop && willFinishInTime)
+        while (contentEnumerator.Current.IsSome && nextState.CurrentTime < hardStop && willFinishInTime &&
+               nextState.CurrentTime < nextState.DurationFinish.IfNone(SystemTime.MaxValueUtc))
         {
+            // Logger.LogDebug(
+            //     "Duration Loop: CT: {CurrentTime} DF: {DurationFinish} Filler: {InDurationFiller} Stop: {HardStop}",
+            //     nextState.CurrentTime,
+            //     nextState.DurationFinish,
+            //     nextState.InDurationFiller,
+            //     hardStop);
+
             MediaItem mediaItem = contentEnumerator.Current.ValueUnsafe();
 
             // find when we should start this item, based on the current time
@@ -50,6 +66,8 @@ public class PlayoutModeSchedulerDuration : PlayoutModeSchedulerBase<ProgramSche
                 {
                     DurationFinish = itemStartTime + scheduleItem.PlayoutDuration
                 };
+
+                // Logger.LogDebug("Setting duration finish to {DurationFinish}", nextState.DurationFinish);
             }
 
             durationUntil = nextState.DurationFinish;
@@ -59,6 +77,31 @@ public class PlayoutModeSchedulerDuration : PlayoutModeSchedulerBase<ProgramSche
 
             if (itemDuration > scheduleItem.PlayoutDuration)
             {
+                var fail = false;
+                foreach (TimeSpan minimumDuration in contentEnumerator.MinimumDuration)
+                {
+                    if (minimumDuration > scheduleItem.PlayoutDuration)
+                    {
+                        Logger.LogError(
+                            "Collection with minimum duration {Duration:hh\\:mm\\:ss} will never fit in schedule item with duration {PlayoutDuration:hh\\:mm\\:ss}; skipping this schedule item!",
+                            minimumDuration,
+                            scheduleItem.PlayoutDuration);
+
+                        nextState = nextState with
+                        {
+                            DurationFinish = None
+                        };
+
+                        nextState.ScheduleItemsEnumerator.MoveNext();
+                        fail = true;
+                    }
+                }
+
+                if (fail)
+                {
+                    break;
+                }
+
                 Logger.LogWarning(
                     "Skipping playout item {Title} with duration {Duration:hh\\:mm\\:ss} that will never fit in schedule item duration {PlayoutDuration:hh\\:mm\\:ss}",
                     PlayoutBuilder.DisplayTitle(mediaItem),
@@ -107,7 +150,8 @@ public class PlayoutModeSchedulerDuration : PlayoutModeSchedulerBase<ProgramSche
                     InPoint = TimeSpan.Zero,
                     OutPoint = itemDuration,
                     GuideGroup = nextState.NextGuideGroup,
-                    FillerKind = (scheduleItem.GuideMode == GuideMode.Filler || contentEnumerator.CurrentIncludeInProgramGuide == false)
+                    FillerKind = scheduleItem.GuideMode == GuideMode.Filler ||
+                                 contentEnumerator.CurrentIncludeInProgramGuide == false
                         ? FillerKind.GuideMode
                         : FillerKind.None,
                     CustomTitle = scheduleItem.CustomTitle,
@@ -136,6 +180,15 @@ public class PlayoutModeSchedulerDuration : PlayoutModeSchedulerBase<ProgramSche
                     itemChapters,
                     false,
                     cancellationToken);
+
+                // foreach (PlayoutItem pi in maybePlayoutItems.OrderBy(pi => pi.StartOffset))
+                // {
+                //     Logger.LogDebug(
+                //         "  - PI Start: {Start} - {Id} - {FillerKind}",
+                //         pi.StartOffset,
+                //         pi.MediaItemId,
+                //         pi.FillerKind);
+                // }
 
                 DateTimeOffset itemEndTimeWithFiller = maybePlayoutItems.Max(pi => pi.FinishOffset);
 
@@ -255,7 +308,7 @@ public class PlayoutModeSchedulerDuration : PlayoutModeSchedulerBase<ProgramSche
 
         PlayoutItem lastItem = playoutItemsToClear.MaxBy(pi => pi.FinishOffset);
 
-        // if we've finished the duration or are in offline tail mode with no fallback, keep guide finish on the last item 
+        // if we've finished the duration or are in offline tail mode with no fallback, keep guide finish on the last item
         if (nextState.DurationFinish.IsNone && (scheduleItem.TailMode != TailMode.Offline || hasFallback))
         {
             playoutItemsToClear.Remove(lastItem);
