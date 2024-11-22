@@ -19,9 +19,11 @@ on:
         required: true
       apple_developer_certificate_password:
         required: true
-      ac_username:
+      ac_key_id:
         required: true
-      ac_password:
+      ac_issuer_id:
+        required: true
+      ac_private_key:
         required: true
       ac_team_id:
         required: true
@@ -35,9 +37,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-13
-            kind: macOS
-            target: osx-x64
+          # - os: macos-13
+          #   kind: macOS
+          #   target: osx-x64
           - os: macos-13
             kind: macOS
             target: osx-arm64
@@ -109,7 +111,8 @@ jobs:
       - name: Notarize
         shell: bash
         run: |
-          xcrun notarytool submit ErsatzTV.dmg --apple-id "${{ secrets.ac_username }}" --password "${{ secrets.ac_password }}" --team-id ${{ secrets.ac_team_id }} --wait
+          echo "${{ secrets.ac_private_key }}" > ~/ac_private_key.p8
+          xcrun notarytool submit ErsatzTV.dmg --key ~/ac_private_key.p8 --issuer ${{ secrets.ac_issuer_id }} --key-id ${{ secrets.ac_key_id }} --team-id ${{ secrets.ac_team_id }} --wait
           xcrun stapler staple ErsatzTV.dmg
 
       - name: Cleanup
@@ -138,104 +141,104 @@ jobs:
             ${{ env.RELEASE_NAME }}.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.gh_token }}
-  build_and_upload:
-    name: Build & Upload
-    runs-on: ${{ matrix.os }}
-    if: contains(github.event.head_commit.message, '[no build]') == false
-    strategy:
-      matrix:
-        include:
+  # build_and_upload:
+  #   name: Build & Upload
+  #   runs-on: ${{ matrix.os }}
+  #   if: contains(github.event.head_commit.message, '[no build]') == false
+  #   strategy:
+  #     matrix:
+  #       include:
           # - os: ubuntu-latest
           #   kind: linux
           #   target: linux-x64
           # - os: ubuntu-latest
           #   kind: linux
           #   target: linux-arm
-          - os: ubuntu-latest
-            kind: linux
-            target: linux-arm64
+          # - os: ubuntu-latest
+          #   kind: linux
+          #   target: linux-arm64
           # - os: windows-latest
           #   kind: windows
           #   target: win-x64
-    steps:
-      - name: Get the sources
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    # steps:
+    #   - name: Get the sources
+    #     uses: actions/checkout@v4
+    #     with:
+    #       fetch-depth: 0
 
-      - name: Setup .NET Core
-        uses: actions/setup-dotnet@v4
+    #   - name: Setup .NET Core
+    #     uses: actions/setup-dotnet@v4
 
-      - name: Clean
-        run: dotnet clean --configuration Release && dotnet nuget locals all --clear
+    #   - name: Clean
+    #     run: dotnet clean --configuration Release && dotnet nuget locals all --clear
 
-      - name: Install dependencies
-        run: dotnet restore -r "${{ matrix.target }}"
+    #   - name: Install dependencies
+    #     run: dotnet restore -r "${{ matrix.target }}"
 
-      - uses: suisei-cn/actions-download-file@v1.3.0
-        if: ${{ matrix.kind == 'windows' }}
-        id: downloadffmpeg
-        name: Download ffmpeg
-        with:
-          url: "https://github.com/ErsatzTV/ErsatzTV-ffmpeg/releases/download/6.1-working-cuvid/ffmpeg-6.1-working-cuvid.7z"
-          target: ffmpeg/
+    #   - uses: suisei-cn/actions-download-file@v1.3.0
+    #     if: ${{ matrix.kind == 'windows' }}
+    #     id: downloadffmpeg
+    #     name: Download ffmpeg
+    #     with:
+    #       url: "https://github.com/ErsatzTV/ErsatzTV-ffmpeg/releases/download/6.1-working-cuvid/ffmpeg-6.1-working-cuvid.7z"
+    #       target: ffmpeg/
 
-      - name: Build
-        shell: bash
-        run: |
-          # Define some variables for things we need
-          release_name="ErsatzTV-${{ inputs.release_version }}-${{ matrix.target }}"
-          echo "RELEASE_NAME=${release_name}" >> $GITHUB_ENV
+    #   - name: Build
+    #     shell: bash
+    #     run: |
+    #       # Define some variables for things we need
+    #       release_name="ErsatzTV-${{ inputs.release_version }}-${{ matrix.target }}"
+    #       echo "RELEASE_NAME=${release_name}" >> $GITHUB_ENV
 
-          # Build everything
-          sed -i '/Scanner/d' ErsatzTV/ErsatzTV.csproj
-          dotnet publish ErsatzTV.Scanner/ErsatzTV.Scanner.csproj --framework net8.0 --runtime "${{ matrix.target }}" -c Release -o "scanner" -p:InformationalVersion="${{ inputs.release_version }}-${{ matrix.target }}" -p:EnableCompressionInSingleFile=true -p:DebugType=Embedded -p:PublishSingleFile=true --self-contained true
-          dotnet publish ErsatzTV/ErsatzTV.csproj --framework net8.0 --runtime "${{ matrix.target }}" -c Release -o "main" -p:InformationalVersion="${{ inputs.release_version }}-${{ matrix.target }}" -p:EnableCompressionInSingleFile=true -p:DebugType=Embedded -p:PublishSingleFile=true --self-contained true
-          mkdir "$release_name"
-          mv scanner/* "$release_name/"
-          mv main/* "$release_name/"
+    #       # Build everything
+    #       sed -i '/Scanner/d' ErsatzTV/ErsatzTV.csproj
+    #       dotnet publish ErsatzTV.Scanner/ErsatzTV.Scanner.csproj --framework net8.0 --runtime "${{ matrix.target }}" -c Release -o "scanner" -p:InformationalVersion="${{ inputs.release_version }}-${{ matrix.target }}" -p:EnableCompressionInSingleFile=true -p:DebugType=Embedded -p:PublishSingleFile=true --self-contained true
+    #       dotnet publish ErsatzTV/ErsatzTV.csproj --framework net8.0 --runtime "${{ matrix.target }}" -c Release -o "main" -p:InformationalVersion="${{ inputs.release_version }}-${{ matrix.target }}" -p:EnableCompressionInSingleFile=true -p:DebugType=Embedded -p:PublishSingleFile=true --self-contained true
+    #       mkdir "$release_name"
+    #       mv scanner/* "$release_name/"
+    #       mv main/* "$release_name/"
 
-          # Build Windows launcher
-          if [ "${{ matrix.kind }}" == "windows" ]; then
-            cargo build --manifest-path=ErsatzTV-Windows/Cargo.toml --release --all-features
-            ls -l ErsatzTV-Windows/target/release
-            mv ErsatzTV-Windows/target/release/ersatztv_windows.exe "$release_name/ErsatzTV-Windows.exe"
-          fi
+    #       # Build Windows launcher
+    #       if [ "${{ matrix.kind }}" == "windows" ]; then
+    #         cargo build --manifest-path=ErsatzTV-Windows/Cargo.toml --release --all-features
+    #         ls -l ErsatzTV-Windows/target/release
+    #         mv ErsatzTV-Windows/target/release/ersatztv_windows.exe "$release_name/ErsatzTV-Windows.exe"
+    #       fi
 
-          # Download ffmpeg
-          if [ "${{ matrix.kind }}" == "windows" ]; then
-            7z e "ffmpeg/${{ steps.downloadffmpeg.outputs.filename }}" -o"$release_name" '*.exe' -r
-            rm -f "$release_name/ffplay.exe"
-          fi
+    #       # Download ffmpeg
+    #       if [ "${{ matrix.kind }}" == "windows" ]; then
+    #         7z e "ffmpeg/${{ steps.downloadffmpeg.outputs.filename }}" -o"$release_name" '*.exe' -r
+    #         rm -f "$release_name/ffplay.exe"
+    #       fi
 
-          # Pack files
-          if [ "${{ matrix.kind }}" == "windows" ]; then
-            7z a -tzip "${release_name}.zip" "./${release_name}/*"
-          else
-            tar czvf "${release_name}.tar.gz" "$release_name"
-          fi
+    #       # Pack files
+    #       if [ "${{ matrix.kind }}" == "windows" ]; then
+    #         7z a -tzip "${release_name}.zip" "./${release_name}/*"
+    #       else
+    #         tar czvf "${release_name}.tar.gz" "$release_name"
+    #       fi
 
-          # Delete output directory
-          rm -r "$release_name"
+    #       # Delete output directory
+    #       rm -r "$release_name"
 
-      - name: Delete old release assets
-        uses: mknejp/delete-release-assets@v1
-        if: ${{ inputs.release_tag == 'develop' }}
-        with:
-          token: ${{ secrets.gh_token }}
-          tag: ${{ inputs.release_tag }}
-          fail-if-no-assets: false
-          assets: |
-            *${{ matrix.target }}.zip
-            *${{ matrix.target }}.tar.gz
+    #   - name: Delete old release assets
+    #     uses: mknejp/delete-release-assets@v1
+    #     if: ${{ inputs.release_tag == 'develop' }}
+    #     with:
+    #       token: ${{ secrets.gh_token }}
+    #       tag: ${{ inputs.release_tag }}
+    #       fail-if-no-assets: false
+    #       assets: |
+    #         *${{ matrix.target }}.zip
+    #         *${{ matrix.target }}.tar.gz
 
-      - name: Publish
-        uses: softprops/action-gh-release@v1
-        with:
-          prerelease: true
-          tag_name: ${{ inputs.release_tag }}
-          files: |
-            ${{ env.RELEASE_NAME }}.zip
-            ${{ env.RELEASE_NAME }}.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.gh_token }}
+    #   - name: Publish
+    #     uses: softprops/action-gh-release@v1
+    #     with:
+    #       prerelease: true
+    #       tag_name: ${{ inputs.release_tag }}
+    #       files: |
+    #         ${{ env.RELEASE_NAME }}.zip
+    #         ${{ env.RELEASE_NAME }}.tar.gz
+    #     env:
+    #       GITHUB_TOKEN: ${{ secrets.gh_token }}
