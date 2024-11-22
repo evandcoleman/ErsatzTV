@@ -23,6 +23,8 @@ on:
         required: true
       ac_password:
         required: true
+      ac_team_id:
+        required: true
       gh_token:
         required: true
 jobs:
@@ -107,7 +109,7 @@ jobs:
       - name: Notarize
         shell: bash
         run: |
-          xcrun notarytool submit ErsatzTV.dmg --apple-id "${{ secrets.ac_username }}" --password "${{ secrets.ac_password }}" --team-id 32MB98Q32R --wait
+          xcrun notarytool submit ErsatzTV.dmg --apple-id "${{ secrets.ac_username }}" --password "${{ secrets.ac_password }}" --team-id ${{ secrets.ac_team_id }} --wait
           xcrun stapler staple ErsatzTV.dmg
 
       - name: Cleanup
@@ -143,18 +145,18 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            kind: linux
-            target: linux-x64
-          - os: ubuntu-latest
-            kind: linux
-            target: linux-arm
+          # - os: ubuntu-latest
+          #   kind: linux
+          #   target: linux-x64
+          # - os: ubuntu-latest
+          #   kind: linux
+          #   target: linux-arm
           - os: ubuntu-latest
             kind: linux
             target: linux-arm64
-          - os: windows-latest
-            kind: windows
-            target: win-x64
+          # - os: windows-latest
+          #   kind: windows
+          #   target: win-x64
     steps:
       - name: Get the sources
         uses: actions/checkout@v4
