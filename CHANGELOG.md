@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `Default` - existing behavior
   - `With Progress` - show animated progress bar at bottom of generated video
 - Add fallback album art image for songs that have no album art
+- Add `Vaapi Display` option to FFmpeg Profile
+  - Possible values will be install-specific and sourced from `vainfo`
+  - `drm` was the previous default value, and should be used in most cases
+- Test all `Vaapi Display` values in `Troubleshooting` > `VAAPI Capabilities`
 
 ### Changed
 - **BREAKING CHANGE**: Change channel identifiers used in XMLTV to work around bad behavior in Plex
@@ -35,6 +39,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Fix synchronizing Plex collections
   - If this breaks collection sync for you, you will need to update your Plex server
 - Fix guide group generation for `duration` YAML instructions
+- Fix default song background when targeting 4:3 resolutions
+  - Previously the background was always 16:9 and was padded, now it will fill 4:3
 
 ## [0.8.8-beta] - 2024-09-19
 ### Added

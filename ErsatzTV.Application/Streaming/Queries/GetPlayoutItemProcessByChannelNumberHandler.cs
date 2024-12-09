@@ -261,6 +261,8 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
                 // override watermark as song_progress_overlay.png
                 if (videoVersion is BackgroundImageMediaVersion { IsSongWithProgress: true })
                 {
+                    string image = "song_progress_overlay.png";
+
                     disableWatermarks = false;
                     playoutItemWatermark = new ChannelWatermark
                     {
@@ -272,7 +274,7 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
                         Opacity = 100,
                         Location = WatermarkLocation.TopLeft,
                         ImageSource = ChannelWatermarkImageSource.Resource,
-                        Image = "song_progress_overlay.png"
+                        Image = image
                     };
                 }
             }
@@ -312,6 +314,7 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
                 request.StartAtZero ? start : now,
                 playoutItemWatermark,
                 maybeGlobalWatermark,
+                channel.FFmpegProfile.VaapiDisplay,
                 channel.FFmpegProfile.VaapiDriver,
                 channel.FFmpegProfile.VaapiDevice,
                 Optional(channel.FFmpegProfile.QsvExtraHardwareFrames),
@@ -357,6 +360,7 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
                         "Channel is Offline",
                         request.HlsRealtime,
                         request.PtsOffset,
+                        channel.FFmpegProfile.VaapiDisplay,
                         channel.FFmpegProfile.VaapiDriver,
                         channel.FFmpegProfile.VaapiDevice,
                         Optional(channel.FFmpegProfile.QsvExtraHardwareFrames));
@@ -370,6 +374,7 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
                         error.Value,
                         request.HlsRealtime,
                         request.PtsOffset,
+                        channel.FFmpegProfile.VaapiDisplay,
                         channel.FFmpegProfile.VaapiDriver,
                         channel.FFmpegProfile.VaapiDevice,
                         Optional(channel.FFmpegProfile.QsvExtraHardwareFrames));
@@ -383,6 +388,7 @@ public class GetPlayoutItemProcessByChannelNumberHandler : FFmpegProcessHandler<
                         "Channel is Offline",
                         request.HlsRealtime,
                         request.PtsOffset,
+                        channel.FFmpegProfile.VaapiDisplay,
                         channel.FFmpegProfile.VaapiDriver,
                         channel.FFmpegProfile.VaapiDevice,
                         Optional(channel.FFmpegProfile.QsvExtraHardwareFrames));
